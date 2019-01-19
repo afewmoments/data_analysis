@@ -34,12 +34,13 @@ movie_profit <- movie_profit_raw %>%
   filter(release_date < "2018-01-01") %>%
   arrange(desc(row_number())) %>%
   distinct(movie, release_date, .keep_all = TRUE) %>%
-  # предположим, что самые большие бюджеты на производство сконцентрированы в руках нескольких компаний, допустим 6
-  mutate(distributor = fct_lump(distributor, n = 6)) %>%
+  # предположим, что самые большие бюджеты на производство сконцентрированы в руках нескольких компаний, допустим 6 (в ходе анализа стало понятно что лучше пять)
+  mutate(distributor = fct_lump(distributor, n = 5)) %>%
   # отфильтруем фильмы с нулевыми кассовыми сборами, вероятно они не вышли
   filter(worldwide_gross > 0) %>%
-  # добавим коэффициент окупаемости, объясняется ниже
-  mutate(profit_ratio = worldwide_gross / production_budget)
+  # добавим коэффициент окупаемости, объясняется ниже и декады
+  mutate(profit_ratio = worldwide_gross / production_budget,
+         decade = 10 * floor(year(release_date) / 10))
 ```
 
 ###  Сколько денег затрачивается на производство?
@@ -232,4 +233,46 @@ movie_profit %>%
   scale_y_continuous(labels = function(x) paste0(x, "x"))
 ```
 
-Интересная история у фильмов ужасов --- до примерно 2010 всё развивалось примерно как и в других жанрах. А потом произошёл необычный скачок. 
+Интересная история у фильмов ужасов --- до примерно 2010 всё развивалось примерно как и в других жанрах. А потом произошёл необычный скачок.
+
+Давайте посмотрим, какие фильмы ужасов стали наиболее прибыльными примерно в 2012 году
+
+```{r}
+movie_profit %>%
+  group_by(genre, distributor, decade) %>%
+  summarise(median_profit_ratio = median(profit_ratio),
+            movies = n()) %>%
+  ungroup() %>%
+  filter(decade >= 1990, 
+         !is.na(distributor)) %>%
+  arrange(desc(median_profit_ratio)) %>%
+  ggplot(aes(decade, median_profit_ratio, color = genre)) +
+  geom_line() +
+  facet_wrap(~ distributor) +
+  scale_y_continuous(labels = function(x) paste0(x, "x"))
+```
+
+Здесь отчётливо видно, что основной скачок в фильмах ужасов произвела кампания Парамаунт Пиктчерз.
+Поэтому ответом на изначальный вопрос будет --- фильмы ужасов, которые снимала Парамаунт Пиктчерз в 2000-х годах
+
+### Какие жанры чаще всего снимались за всё время
+
+Что снимают год от года
+```{r}
+movie_profit %>%
+  count(decade, genre) %>%
+  ggplot(aes(decade, n, color = genre)) +
+  geom_line()
+```
+
+
+```{r}
+movie_profit %>%
+  filter(!is.na(distributor)) %>%
+  count(distributor, genre) %>%
+  ggplot(aes(genre, n, fill = genre)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ distributor, scales = "free_x") +
+  coord_flip()
+```
+
