@@ -1,15 +1,3 @@
 # data-analysis
 
-## Data Dictionary
-Data from [the-numbers.com](https://www.the-numbers.com/)
-
-Header | Description
----|---------
-`release_date` | month-day-year
-`movie` | Movie title
-`production_budget` | Money spent to create the film
-`domestic_gross` | Gross revenue from USA
-`worldwide_gross` | Gross worldwide revenue
-`distributor` | The distribution company
-`mpaa_rating` | Appropriate age rating by the US-based rating agency
-`genre` | Film category
+Анализ интересных данных
