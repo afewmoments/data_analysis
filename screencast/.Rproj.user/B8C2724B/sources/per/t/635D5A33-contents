@@ -1,0 +1,173 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Подготовка данных
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(readr)
+library(scales)
+```
+
+```{r}
+movie_profit_raw <- read_csv(
+  "https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2018/2018-10-23/movie_profit.csv")
+```
+
+```{r}
+movie_profit <- movie_profit_raw %>%
+  # избавимся от первого столбца потому что это не информативный столбец
+  select(-X1) %>%
+  # дата сохранена как текст, распарсим её для корректного отображения
+  mutate(release_date = as.Date(parse_date_time(release_date, "%m!/%d/%Y"))) %>%
+  # будем изучать только фильмы, вышедшие до начала 2018 года
+  filter(release_date < "2018-01-01") %>%
+  arrange(desc(row_number())) %>%
+  distinct(movie, release_date, .keep_all = TRUE) %>%
+  # предположим, что самые большие бюджеты на производство сконцентрированы в руках нескольких компаний, допустим 6
+  mutate(distributor = fct_lump(distributor, n = 6)) %>%
+  # отфильтруем фильмы с нулевыми кассовыми сборами, вероятно они не вышли
+  filter(worldwide_gross > 0)
+```
+
+###  Сколько денег затрачивается на производство?
+
+Посмотрим сколько обычно тратится денег на производство одного фильма
+```{r}
+# для начала посмотрим сколько фильмов производят компании.
+movie_profit %>% 
+  count(distributor, sort = TRUE)
+# шесть компаний производят столько же фильмов, сколько все оставшиеся компании
+
+movie_profit %>%
+  ggplot(aes(production_budget)) +
+  geom_histogram() +
+  scale_x_log10(labels = dollar_format())
+```
+
+
+```{r}
+movie_profit %>%
+  ggplot(aes(distributor, production_budget)) +
+  geom_boxplot() +
+  scale_y_log10(labels = dollar_format()) +
+  coord_flip()
+```
+
+Можно добавить к шести лидирующим компаниям ещё парочку, но общая картина уже видна и так. 
+
+* В данных есть фильмы, у которых не указаны производители (пропущенные значения). Их затраты на производство значительно меньше чем у остальных компаний.
+
+* Все остальные компании тратят заметно меньше 6 лидирующих
+
+Посмотрим как распределяются вознаграждения за фильм
+```{r}
+movie_profit %>%
+  ggplot(aes(distributor, worldwide_gross)) +
+  geom_boxplot() +
+  scale_y_log10(labels = dollar_format()) +
+  coord_flip()
+```
+В общем картина похожа на затраты.
+
+### Какие жанры приносят больше всего прибыли
+
+Какие вообще есть жанры?
+```{r}
+movie_profit %>%
+  count(genre, sort = TRUE)
+```
+
+Всего шесть. Посмотрим какие затрты на производство в каждом разрезе.
+
+```{r}
+movie_profit %>%
+  ggplot(aes(genre, production_budget)) +
+  geom_boxplot() +
+  scale_y_log10(labels = dollar_format()) +
+  coord_flip()
+```
+
+Заметны различия, перераспределим жанры по увеличению бюджета
+
+```{r}
+movie_profit %>%
+  mutate(genre = fct_reorder(genre, production_budget)) %>%
+  ggplot(aes(genre, production_budget)) +
+  geom_boxplot() +
+  scale_y_log10(labels = dollar_format()) +
+  coord_flip()
+```
+
+Самые большие затрыты на приключения, самые низкие на ужастики.
+
+Какой наиболее встречаемый бюджет за всё время?
+
+```{r}
+movie_profit %>%
+  mutate(decade = 10 * floor(year(release_date) / 10)) %>%
+  group_by(decade) %>%
+  summarize_at(vars(production_budget:worldwide_gross), median, na.rm = TRUE) %>%
+  gather(metric, value, -decade) %>%
+  ggplot(aes(decade, value, color = metric)) +
+  geom_line() +
+  scale_y_log10(labels = dollar_format())
+```
+
+```{r}
+movie_profit %>% arrange(desc(production_budget)) %>% View()
+```
+
+Посмотрим сколько компании тратят на производство каждого представленного жанра
+
+```{r}
+movie_profit %>%
+  mutate(genre = fct_reorder(genre, production_budget)) %>%
+  filter(!is.na(distributor)) %>%
+  ggplot(aes(genre, production_budget)) +
+  geom_boxplot() +
+  scale_y_log10(labels = dollar_format()) +
+  coord_flip() +
+  facet_wrap(~ distributor)
+```
+
+Интересная картина. К примеру видно что дисней не особо вкладывается в ужастики. Посмотрим что с кассовыми сборами
+
+```{r}
+movie_profit %>%
+  mutate(genre = fct_reorder(genre, worldwide_gross)) %>%
+  filter(!is.na(distributor)) %>%
+  ggplot(aes(genre, worldwide_gross)) +
+  geom_boxplot() +
+  scale_y_log10(labels = dollar_format()) +
+  coord_flip() +
+  facet_wrap(~ distributor)
+```
+
+У всех компаний примерно стабильные доходы от выпуска фильма. Кроме "остальных" компаний. Длинный хвост и большое количество выбросов, говорит о том что многие фильмы не приносят ожидаемых доходов.
+
+### Какие жанры имеют наибольшее вознаграждение
+
+Посмотрим отношение кассовых международных сборов к производству фильмов
+
+```{r}
+movie_profit %>%
+  mutate(profit_ratio = worldwide_gross / production_budget) %>%
+  arrange(desc(profit_ratio))
+```
+
+Соответственно наименьшее 
+
+```{r}
+movie_profit %>%
+  mutate(profit_ratio = worldwide_gross / production_budget) %>%
+  arrange(profit_ratio)
+```

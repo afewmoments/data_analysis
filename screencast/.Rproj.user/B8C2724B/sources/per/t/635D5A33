@@ -1,0 +1,25 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1547895273433.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "3819407053",
+    "id" : "635D5A33",
+    "lastKnownWriteTime" : 1547901896,
+    "last_content_update" : 1547901896175,
+    "path" : "~/Documents/Github/screencast/movie.Rmd",
+    "project_path" : "movie.Rmd",
+    "properties" : {
+        "chunk_output_type" : "console",
+        "cursorPosition" : "36,74",
+        "last_setup_crc32" : "",
+        "scrollLine" : "26",
+        "tempName" : "Untitled2"
+    },
+    "relative_order" : 3,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_markdown"
+}
