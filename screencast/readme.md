@@ -1,4 +1,4 @@
-# data-analysis
+# Horror Movies and Profit
 
 ## Data Dictionary
 Data from [the-numbers.com](https://www.the-numbers.com/)

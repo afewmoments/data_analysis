@@ -10,18 +10,20 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ### Подготовка данных
 
+В анализе будут использоваться следующие пакеты
 ```{r}
 library(tidyverse)
-library(lubridate)
-library(readr)
-library(scales)
+library(lubridate) # Для парсинга даты
+library(scales)    # Для скэйлов осей в деньги
 ```
+
+Импорт исходных данных
 
 ```{r}
-movie_profit_raw <- read_csv(
-  "https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2018/2018-10-23/movie_profit.csv")
+movie_profit_raw <- read_csv("movie_profit.csv")
 ```
 
+Приводим исходные данные к аккуратному виду
 ```{r}
 movie_profit <- movie_profit_raw %>%
   # избавимся от первого столбца потому что это не информативный столбец
