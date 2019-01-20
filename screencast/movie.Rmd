@@ -260,6 +260,44 @@ movie_profit %>%
 Здесь отчётливо видно, что основной скачок в фильмах ужасов произвела кампания Парамаунт Пиктчерз.
 Поэтому ответом на изначальный вопрос будет --- фильмы ужасов, которые снимала Парамаунт Пиктчерз в 2000-х годах
 
+Но какие фильмы были самыми профитными, давайте взглянем
+
+```{r}
+horror <- movie_profit %>%
+  filter(genre == "Horror") %>%
+  arrange(desc(profit_ratio))
+
+horror %>%
+  head(20) %>%
+  mutate(movie = paste0(movie, " (", year(release_date), ")"),
+    movie = fct_reorder(movie, profit_ratio)) %>%
+  ggplot(aes(movie, profit_ratio, fill = distributor)) +
+  geom_col() +
+  coord_flip() +
+  labs(x = "",
+       y = "Отношение мировых сборов на фильм к затратам на съёмки",
+       title = "Какие фильмы ужасов были самыми окупаемыми?") +
+    scale_y_continuous(labels = function(x) paste0(x, "x"))
+  
+```
+
+
+```{r}
+movie_profit %>%
+  filter(release_date >= "1990-01-01",
+         profit_ratio >= 0.1) %>%
+  ggplot(aes(release_date, profit_ratio)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  geom_text(aes(label = movie), vjust = 1, hjust = 1, check_overlap = TRUE) +
+  scale_y_log10(labels = function(x) paste0(x, "x"), breaks = c(0.1, 1, 10, 100)) +
+  facet_wrap(~ genre)
+```
+
+
+
+
+
 ### Какие жанры чаще всего снимались за всё время
 
 Что снимают год от года
