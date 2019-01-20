@@ -1,7 +1,11 @@
 ---
-output: html_document
-editor_options: 
+editor_options:
   chunk_output_type: console
+output:
+  pdf_document: default
+  html_document: default
+header-includes:
+   - \usepackage[russian]{babel}
 ---
 
 ```{r setup, include=FALSE}
@@ -15,6 +19,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(lubridate) # Для парсинга даты
 library(scales)    # Для скэйлов осей в деньги
+theme_set(theme_light())
 ```
 
 Импорт исходных данных
