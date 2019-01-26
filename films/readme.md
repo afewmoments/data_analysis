@@ -1,6 +1,4 @@
-# Horror Movies and Profit
-
-Анализ фильм
+# Анализ фильмов
 
 ## Data Dictionary
 Data from [the-numbers.com](https://www.the-numbers.com/)
