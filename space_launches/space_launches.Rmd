@@ -5,3 +5,93 @@ editor_options:
   chunk_output_type: console
 ---
 
+# Подготовка данных
+
+```{r}
+library(tidyverse)
+library(countrycode)
+theme_set(theme_light())
+```
+
+```{r}
+agencies <- read_csv("agencies.csv")
+launches <- read_csv("launches.csv")
+```
+
+# Анализ
+
+Сколько всего было запусков?
+
+```{r}
+launches %>%
+  count(launch_year, agency_type) %>%
+  ggplot(aes(launch_year, n, color = agency_type)) +
+  geom_line() +
+  labs(x = "Time",
+       y = "Count of launches",
+       color = "Agency type")
+```
+
+Не так давно стали появляться стартапы, у них положительная тенденция. Государственные запуски заметно сократились. 
+
+Какие государства производили запуски.
+
+```{r}
+launches %>%
+  count(agency_type, agency, sort = TRUE)
+```
+
+Много пропущенных значений.
+Посмотрим по стэйт коду, что за страна производила запуски.
+
+```{r}
+launches %>%
+  count(state_code, sort = TRUE)
+```
+
+Похоже на то, что можно схлопнуть страны, которые производили мало запусков.
+
+Привидём коды стран к общеупотребимым
+```{r}
+launches %>%
+  mutate(state_code_cleaned = fct_collapse(
+    state_code,
+    "RU" = c("RU", "SU"),
+    "FR" = "F",
+    "JP" = "J",
+    "IT" = "I"
+  )) %>%
+  mutate(state_name = countrycode(state_code_cleaned, "iso2c", "country.name")) %>%
+  count(state_code_cleaned, sort = TRUE)
+```
+
+После этого можно схлопнуть страны с малым количеством полётов.
+Я выбираю 6 стран, потому что у них наиболее заметный вклад в полёты.
+
+```{r}
+launches_processed <- launches %>%
+  mutate(state_code_cleaned = fct_collapse(
+    state_code,
+    "RU" = c("RU", "SU"),
+    "FR" = "F",
+    "JP" = "J",
+    "IT" = "I"
+  )) %>%
+  mutate(state_name = countrycode(state_code_cleaned, "iso2c", "country.name"),
+         state_name = fct_lump(state_name, 6)) %>%
+  replace_na(list(state_name = "Other"))
+```
+
+Теперь можно визуализировать количество полётов в зависимости от государства, в разрезе годов запуска
+
+```{r}
+launches_processed %>%
+  count(launch_year, state_name) %>%
+  ggplot(aes(launch_year, n, color = state_name)) +
+  geom_line() +
+  labs(x = "Time",
+       y = "Launches per year",
+       color = "Responsible state",
+       title = "Launches per state per year")
+```
+
