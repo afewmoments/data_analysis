@@ -70,6 +70,7 @@ launches %>%
 
 ```{r}
 launches_processed <- launches %>%
+  filter(launch_date <= Sys.Date()) %>%
   mutate(state_code_cleaned = fct_collapse(
     state_code,
     "RU" = c("RU", "SU"),
@@ -87,11 +88,109 @@ launches_processed <- launches %>%
 ```{r}
 launches_processed %>%
   count(launch_year, state_name) %>%
+  mutate(state_name = fct_reorder(state_name, -n, sum)) %>%
   ggplot(aes(launch_year, n, color = state_name)) +
   geom_line() +
   labs(x = "Time",
        y = "Launches per year",
        color = "Responsible state",
-       title = "Launches per state per year")
+       title = "Launches per state per year",
+       subtitle = "Combine Soviet Union with Russia")
 ```
 
+Сфокусируемся на приватных и стартапных запусках. 
+ПОсмотрим какие негосударственные агенства осуществляли полёты, и к какой стране они относятся.
+Для этого мы объединим все страны с малым количеством полётов в одну группу "Другие", и так же Объединим все мелкие компании из штатов в одну группу "Другие из Штатов".
+
+```{r}
+privete_startup_launches <- launches_processed %>%
+  filter(agency_type %in% c("private", "startup")) %>%
+  inner_join(agencies %>%
+               select(agency, agency_name = name, short_name, parent), by = "agency") %>%
+  mutate(agency_name_lumped = fct_lump(agency_name, 6),
+         agency_name_lumped = if_else(agency_name_lumped == "Other" & state_name == "United States",
+                                      "Other US", as.character(agency_name_lumped)))
+```
+
+Сделано это для того, чтобы упростить построение графика, и, тем самым, упростить понимание
+
+```{r}
+privete_startup_launches %>%
+  count(agency_name_lumped, state_name, sort = TRUE) %>%
+  mutate(agency_name_lumped = fct_reorder(agency_name_lumped, n, sum)) %>%
+  ggplot(aes(agency_name_lumped, n, fill = state_name)) +
+  geom_col() +
+  coord_flip() +
+  labs(x = "",
+       y = "count of launches overall",
+       title = "What private/startup agencies have had most launches?",
+       fill = "Country")
+```
+
+Посмотрим, какое количество запусков делали негосударственные компании каждые пять лет.
+
+```{r}
+privete_startup_launches %>%
+  count(agency_name_lumped, 
+        decade = 5 * (launch_year %/% 5)) %>%
+  complete(agency_name_lumped, decade, fill = list(n = 0)) %>%
+  mutate(agency_name_lumped = fct_reorder(agency_name_lumped, -n, sum)) %>%
+  ggplot(aes(decade, n, color = agency_name_lumped)) +
+  geom_line() +
+  facet_wrap(~ agency_name_lumped) +
+  theme(legend.position = "none") +
+  labs(x = "Time",
+       y = "count of launches in 5 year period")
+```
+
+Интересно теперь посмотреть, историю Российских летательных аппаратов.
+Для этого отберём все российские летательные аппараты у которых полётов было больше чем, к примеру, 30.
+
+```{r}
+vehicles <- launches_processed %>%
+  group_by(type, state_name) %>%
+  summarise(first_launches = min(launch_year),
+            last_launches = max(launch_year),
+            launches = n()) %>%
+  ungroup()
+
+russian_vehicles <- vehicles %>%
+  filter(state_name == "Russia") %>%
+  arrange(desc(launches)) %>%
+  filter(launches >= 30)
+```
+
+Теперь визуализируем в каком году, какой летательный аппарат запускался.
+ЧТобы лучше представлять количество запусков, зашумим немного построение точек
+
+```{r}
+launches_processed %>%
+  semi_join(russian_vehicles, by = "type") %>%
+  mutate(type = fct_reorder(type, launch_date, min)) %>%
+  ggplot(aes(launch_date, type)) +
+  geom_jitter(alpha = 0.25, width = 0, height = 0.2) +
+  labs(x = "Launch date",
+       y = "Vehicle type",
+       title = "Timeline of Soviet/Russian space vehicles",
+       subtitle = "Only vehicles with at least 30 launches")
+```
+
+Теперь посмотрим, как обстоят дела в штатах.
+
+```{r}
+launches_processed %>%
+  filter(state_code == "US") %>%
+  add_count(type) %>%
+  filter(n >= 20) %>%
+  mutate(type = fct_reorder(type, launch_date, min),
+         agency_type = str_to_title(agency_type)) %>%
+  ggplot(aes(launch_date, type, color = agency_type)) +
+  geom_jitter(alpha = 0.25, width = 0, height = 0.2) +
+  labs(x = "Launch date",
+       y = "Vehicle type",
+       title = "Timeline of US space vehicles",
+       color = "Agency type",
+       subtitle = "Only vehicles with at least 20 launches")
+```
+
+ПОлучился очень интересный график, который показывает, как со временем все запуски переходят в частные руки, при чем последнее время всё чаще набирает обороты запуски старт-апных шатлов.
