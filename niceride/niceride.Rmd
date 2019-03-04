@@ -4,4 +4,232 @@ editor_options:
   chunk_output_type: console
 ---
 
-# Description
+# Извлечение данных
+
+```{r}
+library(tidyverse)
+library(magrittr)
+library(ggthemes)
+library(data.table)
+library(rvest)      # Fetching
+library(janitor)    # Cleaning column names
+library(lubridate)
+library(sf)         # Maps
+library(ggmap)      # Maps
+library(gganimate) 
+library(viridis)
+library(ggTimeSeries)
+```
+
+
+Only needed for interactive maps
+library(leaflet)
+library(leaflet.extras)
+
+
+Если мы перейдем на один уровень выше к <https://s3.amazonaws.com/niceride-data/>, мы увидим файл `XML`, который мы можем использовать.
+
+```{r}
+url <- "https://s3.amazonaws.com/niceride-data/"
+repo <- url %>% read_html %>% 
+  xml_child(1) %>% xml_child(1) %>% xml_find_all(".//key")
+```
+
+Теперь у нас есть набор узлов xml
+
+```{r}
+repo[1:10]
+```
+
+Функция `as_list` необходима, потому что мы конвертируем x`ml_nodeset` в вектор. 
+Мы использовали `str_match_all` для поиска файлов, которые начинаются с 2018. 
+Оператор `%<>%` передает репо в `as_listё, а также устанавливает репо в возвращаемое значение цепочки. 
+В этот момент, если вызовем репо, то увидим следующее
+
+```{r}
+repo %<>% as_list %>% unlist %>% 
+  #Starts with 2018
+  str_match_all("^2018.*") %>% unlist
+repo
+```
+
+Вы можете объединить оба действия в один цикл, но я сделал два цикла. 
+Оператор `%T>%` пригодится здесь, чтобы отсоединить объединенное имя файла вместо возврата `unzip`.
+
+# Скачивание и распаковка данных
+
+```{r}
+# dir.create("import")
+# Скачивание
+for(file in repo) {
+  download.file(paste0(url,file),destfile = paste0("import/",file)) 
+}
+# Распаковка
+for(file in repo) {
+  paste0("import/",file) %T>%
+    unzip(exdir = "import") %>%
+    unlink
+}
+```
+
+# Чтение и объединение в dataframe
+
+Теперь, когда у нас есть разархивированные файлы, мы можем прочитать их в список и объединить список в фрейм данных. 
+Вы можете сделать это вручную, но это позволит вам легко сменить год или объединить 2018 и 2017 годы в рамку данных для переписки между годами.
+
+```{r}
+import <- lapply("./import" %>% list.files, function(name) {
+  return(read_csv(paste0("./import/",name)))
+})
+rides <- rbindlist(import,fill = T)
+rides %<>% clean_names(case = "snake")
+```
+
+# Дополнительные столбцы
+
+Теперь, когда у нас есть данные о поездках, мы можем построить несколько дополнительных столбцов/функций. 
+Возраст --- намного более интуитивное поле, чем `birth_year`, и группировка возрастов пригодится позже.
+
+```{r}
+rides$age <- 2019-rides$birth_year
+rides$age_bin <- rides$age %>% .bincode(seq(0,120,20))
+rides$age_bin <- sapply(rides$age_bin,function(bin) {
+  return(paste0((bin-1)*20,"-",(bin*20)," Years Old"))
+})
+```
+
+Мы, вероятно, захотим видеть вещи в масштабе, поэтому нам следует также построить некоторые столбцы даты/времени.
+
+```{r}
+# Trip times
+rides$minutes <- rides$tripduration/60
+rides$hours <- rides$tripduration/60/60
+# Start times
+rides$start_hour <- lubridate::hour(rides$start_time)
+rides$mm <- hour(rides$start_time)*60 + minute(rides$start_time)
+rides$start_day <- wday(rides$start_time,label =  T, abbr = F, week_start = 1)
+# Weekend/Weekday
+rides$start_day_type <- ifelse(wday(rides$start_time, week_start = 1)>5, "Weekend", "Weekday")
+# Week of year
+rides$week <- week(rides$start_time)
+# Month (1-12)
+rides$month <- month(rides$start_time,label = T,abbr = F)
+# Month (January-December)
+rides$month_text <- month(rides$start_time,label = T,abbr = F)
+# Remove unused levels from factor
+rides$month_text <- droplevels(rides$month_text)
+```
+
+# Некоторые таблицы для контекста
+
+```{r}
+table(rides$age_bin) %>% lapply({
+  . %>% format(big.mark=",") %>% return
+})
+```
+
+# Вкусная часть
+Теперь пришло время визуально изучить данные. 
+Для той же простоты я просто использую `theme_fivethirtyeight()` и `scale _.* _ Viridis.*()` 
+Для темы и цветов большинства этих графиков.
+
+Визуализация заездов по месяцам
+
+```{r}
+rides$age
+```
+
+
+```{r}
+ggplot(data = rides[which(rides$age<=60),], aes(x=week, fill= month_text)) +
+  geom_histogram(alpha=.9) + theme_fivethirtyeight() + ggtitle("Недельная частота заездов в год") + 
+  facet_grid(vars(usertype), vars(age_bin)) + scale_fill_viridis_d() 
+ggsave(filename = "ride-frequecy-histogram.png",width = 8,units = "in")
+```
+
+```{r}
+ggplot(data=rides[which(rides$age<=80),], aes(x=week, fill= age_bin)) +
+  geom_histogram(alpha=.9,aes(y=..density..)) + theme_fivethirtyeight() + ggtitle("Распределение заездов понедельно за 2018 год") + 
+  geom_density(alpha=0,color=rgb(1,0,0,.4)) + 
+  facet_grid(vars(usertype), vars(age_bin)) + scale_fill_viridis_d()
+ggsave(filename = "ride-frequency-density.png",width = 8,units = "in")
+```
+
+
+
+
+```{r}
+df.lines <- rides %>%
+  group_by(start_station_longitude,
+           start_station_latitude,
+           end_station_longitude,
+           end_station_latitude,
+           start_station_name,
+           end_station_name) %>%
+  summarize(rides = n())
+```
+
+```{r}
+rides %>%
+  group_by(start_station_name,end_station_name) %>%
+  filter(start_station_name!="NULL") %>%
+  summarize(rides = n()) %>% ungroup %>% top_n(10)
+```
+
+```{r}
+register_google(key = "YOUR_API_KEY")
+mpls <- get_map(c(left = min(rides$start_station_longitude), 
+                  bottom = min(rides$start_station_latitude), 
+                  right = max(rides$start_station_longitude), 
+                  top = max(rides$start_station_latitude)),
+                maptype='terrain', source='stamen', zoom=13)
+```
+
+
+```{r}
+ggmap(mpls,darken = c(.8,"#FFFFFF")) + 
+  geom_segment(data = df.lines,
+               aes(x = start_station_longitude, 
+                   y = start_station_latitude,
+                   xend = end_station_longitude,
+                   yend = end_station_latitude,
+                   alpha = sqrt(rides)),
+               color = "#000000") + coord_cartesian() +
+  scale_alpha(range = c(0.0001, .5)) +
+  geom_point(data = df.lines %>% 
+               group_by(longitude = start_station_longitude,
+                        latitude = start_station_latitude) %>%
+               summarize(rides = sum(rides)),
+             aes(x = longitude, 
+                 y = latitude,
+                 size = rides),
+             color="#009900",alpha=.4) + 
+  scale_size_continuous(range(4,100)) +
+  scale_color_viridis_c() + 
+  scale_fill_viridis_c() + 
+  theme_nothing()
+ggsave(filename = "station-network.jpg",width = 8,units = "in")
+```
+
+
+
+
+
+
+```{r}
+# Generate frequency table
+df.cal <- rides$start_time %>% as_date() %>% table %>% data.frame
+names(df.cal) <- c("Date","Rides")
+df.cal$Date %<>% as_date
+
+ggplot_calendar_heatmap(
+  df.cal,
+  'Date',
+  'Rides'
+) + theme_fivethirtyeight() + 
+  theme(legend.position = "right",
+        legend.direction = "vertical") + 
+  scale_fill_viridis_c()
+ggsave(filename = "ride-calendar.png",width = 8,units = "in")
+```
+
