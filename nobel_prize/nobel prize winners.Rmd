@@ -1,0 +1,164 @@
+---
+title: "Nobel prize"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Используемые библиотеки
+
+```{r}
+library(tidyverse)
+library(here)
+library(janitor)
+library(lubridate)
+library(WOI)
+```
+
+# Данные
+
+```{r}
+nobel_winners <- readr::read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2019/2019-05-14/nobel_winners.csv") %>% 
+  distinct(full_name, prize_year, category, .keep_all = TRUE) %>% 
+  mutate(decade = 10 * (prize_year %/% 10),
+         age = prize_year - year(birth_date))
+  
+  
+nobel_winner_all_pubs <- readr::read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2019/2019-05-14/nobel_winner_all_pubs.csv")
+```
+
+# Изучаем данные
+
+```{r}
+nobel_winners %>% 
+  count(category, sort = T)
+```
+
+Распределение категорий нобелевской премии по декадам
+
+```{r}
+nobel_winners %>% 
+  count(category, decade) %>% 
+  ggplot(aes(decade, n, fill = category)) +
+  geom_col()
+```
+
+Посмотрим кто чаще остальных, в какой категории получал премии
+
+```{r}
+nobel_winners %>%
+  distinct(full_name, prize_year, category) %>%
+  group_by(full_name) %>% 
+  mutate(prizes = n(),
+         distinct_prizes = n_distinct(category)) %>% 
+  arrange(desc(prizes), full_name)
+```
+
+Перед тем как перейти к следующему блоку изучим новую функцию. 
+Она находит первое не пропущенное значение в каждой позиции. 
+Она работает так же как функция SQL COALESCE, которая делает то же самое для NULL.
+
+```{r}
+y <- c(1, 2, NA, NA, 5)
+z <- c(NA, NA, 3, 4, 5)
+coalesce(y, z)
+```
+
+Посмотрим кому чаще вручались нобелевки:
+
+```{r}
+nobel_winners %>% 
+  count(decade,
+        gender = coalesce(gender, laureate_type)) %>% 
+  ggplot(aes(decade, n, fill = gender)) +
+  geom_col()
+```
+
+Красноречиво, женщинам дают меньше наград. 
+Посмотрим сколько это в процентном соотношении
+
+```{r}
+nobel_winners %>% 
+  count(decade,
+        gender = coalesce(gender, laureate_type)) %>% 
+  group_by(decade) %>% 
+  mutate(percent = n/sum(n)) %>% 
+  ggplot(aes(decade, percent, fill = gender)) +
+  geom_col()
+```
+
+ОДнако вроде бы в последнее время их общий процент увеличивается. 
+Посмотрим на премии в разрезе категорий
+
+```{r}
+nobel_winners %>% 
+  count(decade,
+        category,
+        gender = coalesce(gender, laureate_type)) %>% 
+  group_by(decade) %>% 
+  mutate(percent = n/sum(n)) %>% 
+  ggplot(aes(decade, percent, fill = gender)) +
+  geom_col() +
+  facet_wrap(.~ category)
+```
+
+Ух ты интересный график. Во первых видно, что организациям дают только премию мира. А премии по экономике дают начиная примерно с 1960 годов.
+Больше всего женщин отметили в литературе, меньше всего в экономике и в физике.
+
+```{r}
+nobel_winners %>% 
+  filter(category == "Economics", gender == "Female")
+
+nobel_winners %>% 
+  filter(category == "Physics", gender == "Female")
+```
+
+В экономике это всего одна премия, в физике две.
+
+Давайте посмотрим в каком возрасте обычно получают премии. Самые молодые учёные в физике, в литературе и экономике самые пожилые. 
+
+```{r}
+nobel_winners %>% 
+  mutate(category = fct_reorder(category, age, na.rm = TRUE)) %>% 
+  ggplot(aes(category, age)) +
+  geom_boxplot() +
+  coord_flip()
+```
+
+Самый молодой лаурет, это девушка 17 лет [Malala Yousafzai](https://en.wikipedia.org/wiki/Malala_Yousafzai)
+
+```{r}
+nobel_winners %>% 
+  filter(age < 25) %>% View()
+```
+
+Посмотрим как со временем изменялся средний возраст лауретов
+
+```{r}
+nobel_winners %>% 
+  filter(!is.na(age)) %>% 
+  group_by(decade, category) %>% 
+  summarize(average_age = mean(age),
+            median_age = median(age)) %>% 
+  ggplot(aes(decade, average_age, color = category)) +
+  geom_line()
+```
+
+Сильно возрос средний возраст физиков.
+Из-за малого количество предствителей в премиях мира, средний возраст сильно упал.
+
+ПОсмотрим из каких стран чаще всего были лауреты
+
+```{r}
+nobel_winners %>% 
+  filter(!is.na(birth_country)) %>% 
+  count(birth_country = fct_lump(birth_country, 9),
+        category, sort = TRUE) %>% 
+  mutate(birth_country = fct_reorder(birth_country, n)) %>% 
+  ggplot(aes(birth_country, n, fill = category)) +
+  geom_col() +
+  facet_wrap(.~ category) +
+  coord_flip()
+```
+
+Больше всего оказалось из США. НО если посмотреть в разрезе категорий, то литература оказывается не коньком штатов, зато там сильные все остальные категории
