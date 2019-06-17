@@ -9,6 +9,7 @@ editor_options:
 
 ```{r}
 library(tidyverse)
+library(broom)
 theme_set(theme_light())
 ```
 
@@ -108,6 +109,52 @@ wine_ratings %>%
 Попробуем теперь добавить в модель параметр "кто обозревал", т.е. `taster_name`
 
 ```{r}
+wine_ratings %>%
+  mutate(taster_name = fct_reorder(fct_lump(taster_name, 10), points)) %>% 
+  ggplot(aes(taster_name, points)) +
+  geom_boxplot() +
+  coord_flip()
+```
 
+```{r}
+wine_ratings %>% 
+  replace_na(list(taster_name = "Missing")) %>% 
+  mutate(country = fct_relevel(fct_lump(country, 7), "US")) %>% 
+  mutate(taster_name = fct_relevel(fct_lump(taster_name, 6), "Missing")) %>% 
+  lm(points ~ log2(price) + country + year + taster_name, data = .) %>% 
+  summary()
+```
+
+Теперь построим линейную модель
+
+```{r}
+model <- wine_ratings %>% 
+  replace_na(list(taster_name = "Missing", country = "Missing")) %>% 
+  mutate(country = fct_relevel(fct_lump(country, 7), "US")) %>% 
+  mutate(taster_name = fct_relevel(fct_lump(taster_name, 6), "Missing")) %>% 
+  lm(points ~ log2(price) + country + year + taster_name, data = .)
+
+model %>% 
+  tidy(conf.int = TRUE) %>% # из пакета broom
+  filter(term != "(Intercept)") %>% 
+  mutate(term = str_replace(term, "country", "Country: "),
+         term = str_replace(term, "taster_name", "Taster: "),
+         term = fct_reorder(term, estimate)) %>% 
+  ggplot(aes(estimate, term)) + 
+  geom_point() +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high))
+```
+
+На графике выше изображены доверительные интервалы для предикторов.
+
+Построим актуальные значения, и на этот же график нанесём предсказанные значения
+
+```{r}
+model %>% 
+  augment(data = wine_ratings) %>% 
+  ggplot(aes(.fitted, points)) + 
+  geom_point(alpha = .1)
+
+tidy(anova(model))
 ```
 
