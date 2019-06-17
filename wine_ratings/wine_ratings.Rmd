@@ -1,0 +1,113 @@
+---
+title: "Wine ratings"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Подготовка данных
+
+```{r}
+library(tidyverse)
+theme_set(theme_light())
+```
+
+
+```{r}
+wine_ratings <- readr::read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2019/2019-05-28/winemag-data-130k-v2.csv") %>% 
+  select(-X1) %>% 
+  #  добавляем новую переменную год производства, её вытаскиваем из названия вина
+  extract(title, "year", "(20\\d\\d)", convert = T, remove = FALSE) %>% 
+  mutate(year = ifelse(year < 1900, NA, year))
+```
+
+
+```{r}
+wine_ratings %>% 
+  count(country, sort = TRUE)
+
+# посмотрим разные разрезы данных
+wine_ratings %>% 
+  count(designation, sort = TRUE)
+
+wine_ratings %>% 
+  count(taster_name, sort = TRUE)
+
+wine_ratings %>% 
+  filter(!is.na(designation)) %>% 
+  count(variety, designation, sort = TRUE)
+
+wine_ratings %>% 
+  ggplot(aes(points)) +
+  geom_histogram(binwidth = 1)
+
+wine_ratings %>% 
+  ggplot(aes(year)) +
+  geom_histogram()
+
+wine_ratings %>% 
+  ggplot(aes(price)) +
+  geom_histogram() +
+  scale_x_log10()
+```
+
+Теперь посмотрим распредение вина в зависимости от цены и оценки 
+
+```{r}
+ggplot(wine_ratings, aes(price, points)) + 
+  geom_point(alpha = .1) +
+  geom_smooth(method = "lm") + 
+  scale_x_log10()
+```
+
+На этом же графике построена линейный тренд.
+
+```{r}
+summary(lm(points ~ log2(price), wine_ratings))
+```
+
+Что нам говорят результаты предсказания? Фактически, что каждый раз, когда цена `price` удваивается, ожидаемое количество очков `points` увеличивается на два.
+
+Теперь постараемся улучшить нашу предсказательную модель. Добавим в неё параметр страны производителя.
+
+
+```{r}
+wine_ratings %>% 
+  mutate(country = fct_relevel(fct_lump(country, 7), "US")) %>%
+  mutate(country = fct_reorder(country, points)) %>% 
+  ggplot(aes(country, points)) +
+  geom_boxplot() +
+  coord_flip()
+
+wine_ratings %>% 
+  mutate(country = fct_relevel(fct_lump(country, 7), "US")) %>% 
+  lm(points ~ log2(price) + country, data = .) %>% 
+  summary()
+```
+
+Посмотрим теперь, будет ли значимым добавление параметра года производства:
+
+```{r}
+wine_ratings %>%
+  group_by(year) %>% 
+  summarize(average_point = mean(points), n())
+```
+
+В принципе год встречается довольно много раз, и от него может что-то зависеть, посмотрим как изменится предсказательная модель
+
+```{r}
+wine_ratings %>% 
+  mutate(country = fct_relevel(fct_lump(country, 7), "US")) %>% 
+  lm(points ~ log2(price) + country + year, data = .) %>% 
+  summary()
+```
+
+
+Да, действительно --- параметр год производства, статистически значим p-value < 0.05.
+
+Попробуем теперь добавить в модель параметр "кто обозревал", т.е. `taster_name`
+
+```{r}
+
+```
+
