@@ -12,7 +12,7 @@ library(tidyverse)
 library(here)
 library(janitor)
 library(lubridate)
-library(WOI)
+library(WDI)
 ```
 
 # Данные
