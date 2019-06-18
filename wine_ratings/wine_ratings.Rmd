@@ -10,6 +10,8 @@ editor_options:
 ```{r}
 library(tidyverse)
 library(broom)
+library(tidytext)
+library(widyr)
 theme_set(theme_light())
 ```
 
@@ -157,4 +159,87 @@ model %>%
 
 tidy(anova(model))
 ```
+
+### Лассо регрессия на словах в описании
+
+Подробнее о методе лассо регрессии можно узнать [тут](https://ranalytics.github.io/data-mining/01-Data-Mining-Models-in-R.html#section_1_1)
+
+```{r}
+wine_ratings_words <- wine_ratings %>% 
+  mutate(wine_id = row_number()) %>% 
+  unnest_tokens(word, description) %>% 
+  anti_join(stop_words, by = "word") %>% 
+  filter(!word %in% c("wine", "drink"))
+```
+
+`stop_words` --- это список стоп-слов, которые могут мешать поисковой системе или обучаемой модели. Подробнее в справке.
+
+Посмотрим как часто встречается то или иное слово в описании вина
+
+```{r}
+wine_ratings_words %>% 
+  count(word, sort = TRUE) %>% 
+  head(20) %>% 
+  mutate(word = fct_reorder(word, n)) %>% 
+  ggplot(aes(word, n)) + 
+  geom_col() +
+  coord_flip()
+```
+
+Теперь посмотрим как часто встречается пара слов в одном описании
+
+```{r}
+wine_ratings_words_cors <- wine_ratings_words %>% 
+  distinct(wine_id, word) %>% 
+  add_count(word) %>% 
+  filter(n >= 1000) %>% 
+  pairwise_cor(word, wine_id, sort = TRUE)
+
+wine_ratings_words_cors
+```
+
+```{r}
+wine_words_filtered <- wine_ratings_words %>% 
+  distinct(wine_id, word) %>% 
+  add_count(word) %>% 
+  filter(n >= 250,
+         str_detect(word, "[a-z]"))
+
+wine_words_filtered
+```
+
+Теперь попробуем построить граф, который визуализирует взаимоотношение пар слов
+
+```{r}
+library(Matrix)
+
+wine_words_matrix <- wine_words_filtered %>% 
+  cast_sparse(wine_id, word)
+
+wine_ids <- as.integer(rownames(wine_words_matrix))
+scores <- wine_ratings$points[wine_ids]
+
+library(glmnet)
+
+glmnet_model <- glmnet(wine_words_matrix, scores)
+
+glmnet_model %>% 
+  tidy() %>% 
+  filter(term %in% c("rich", "black", "simple")) %>% 
+  ggplot(aes(lambda, estimate, color = term)) +
+  geom_line() +
+  scale_x_log10()
+  
+glmnet_model %>% 
+  tidy() %>% 
+  count(lambda) %>% 
+  ggplot(aes(lambda, n)) +
+  geom_line() +
+  scale_x_log10()
+
+cv_glmnet_model <- cv.glmnet(wine_words_matrix, scores) # cross validation
+
+library(doMC)
+```
+
 
