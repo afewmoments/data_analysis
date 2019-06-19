@@ -21,7 +21,8 @@ wine_ratings <- readr::read_csv("https://raw.githubusercontent.com/rfordatascien
   select(-X1) %>% 
   #  добавляем новую переменную год производства, её вытаскиваем из названия вина
   extract(title, "year", "(20\\d\\d)", convert = T, remove = FALSE) %>% 
-  mutate(year = ifelse(year < 1900, NA, year))
+  mutate(year = ifelse(year < 1900, NA, year)) %>% 
+  filter(!is.na(price))
 ```
 
 
@@ -169,7 +170,8 @@ wine_ratings_words <- wine_ratings %>%
   mutate(wine_id = row_number()) %>% 
   unnest_tokens(word, description) %>% 
   anti_join(stop_words, by = "word") %>% 
-  filter(!word %in% c("wine", "drink"))
+  filter(!word %in% c("wine", "drink"),
+         str_detect(word, "[a-z]"))
 ```
 
 `stop_words` --- это список стоп-слов, которые могут мешать поисковой системе или обучаемой модели. Подробнее в справке.
@@ -202,13 +204,12 @@ wine_ratings_words_cors
 wine_words_filtered <- wine_ratings_words %>% 
   distinct(wine_id, word) %>% 
   add_count(word) %>% 
-  filter(n >= 250,
-         str_detect(word, "[a-z]"))
+  filter(n >= 100)
 
 wine_words_filtered
 ```
 
-Теперь попробуем построить граф, который визуализирует взаимоотношение пар слов
+
 
 ```{r}
 library(Matrix)
@@ -218,6 +219,8 @@ wine_words_matrix <- wine_words_filtered %>%
 
 wine_ids <- as.integer(rownames(wine_words_matrix))
 scores <- wine_ratings$points[wine_ids]
+
+wine_words_matrix_extra <- cbind(wine_words_matrix, log_price = log2(wine_ratings$price[wine_ids]))
 
 library(glmnet)
 
@@ -240,6 +243,115 @@ glmnet_model %>%
 cv_glmnet_model <- cv.glmnet(wine_words_matrix, scores) # cross validation
 
 library(doMC)
+
+registerDoMC(cores = 4)
+
+cv_glmnet_model <- cv.glmnet(wine_words_matrix_extra, scores, parallel = TRUE)
+
+plot(cv_glmnet_model)
+```
+
+Посмотрим какие слова встречались чаще всего в положительных описаниях
+
+```{r}
+cv_glmnet_model$glmnet.fit %>% 
+  tidy() %>% 
+  filter(lambda == cv_glmnet_model$lambda.1se,
+         term != "(Intercept)") %>% 
+  arrange(desc(estimate))
+```
+
+И в негативных
+
+```{r}
+cv_glmnet_model$glmnet.fit %>% 
+  tidy() %>% 
+  filter(lambda == cv_glmnet_model$lambda.1se,
+         term != "(Intercept)") %>% 
+  arrange(estimate)
+```
+
+Теперь построим график, который отображает по десять самых позитивных и самых негативных слов
+
+```{r}
+cv_glmnet_model$glmnet.fit %>% 
+  tidy() %>%
+  filter(lambda == cv_glmnet_model$lambda.1se,
+         term != "(Intercept)",
+         term != "log_price") %>%
+  arrange(estimate) %>% 
+  group_by(direction = ifelse(estimate < 0, "Negative", "Positive")) %>% 
+  top_n(10, abs(estimate)) %>% 
+  ungroup() %>% 
+  mutate(term = fct_reorder(term, estimate)) %>% 
+  ggplot(aes(term, estimate, fill = direction)) +
+  geom_col() +
+  coord_flip() +
+  labs(y = "Ожидаемый влияние слова на предсказание")
+```
+
+Облегчим код, разобъём его на две части
+
+```{r}
+lexicon <- cv_glmnet_model$glmnet.fit %>% 
+  tidy() %>%
+  filter(lambda == cv_glmnet_model$lambda.1se,
+         term != "(Intercept)",
+         term != "log_price") %>% 
+  select(word = term, coefficient = estimate)
+
+lexicon %>% 
+  arrange(coefficient) %>% 
+  group_by(direction = ifelse(coefficient < 0, "Negative", "Positive")) %>% 
+  top_n(16, abs(coefficient)) %>% 
+  ungroup() %>% 
+  mutate(word = fct_reorder(word, coefficient)) %>% 
+  ggplot(aes(word, coefficient, fill = direction)) +
+  geom_col() +
+  coord_flip() +
+  labs(y = "Ожидаемый влияние слова на предсказание")
+```
+
+Посмотрим какие слова встречаются в первом описании
+
+```{r}
+wine_ratings_words %>% 
+  filter(wine_id == 1) %>% 
+  select(word, points)
+
+wine_ratings$description[1]
+```
+
+Посмотрим какую оценку имеет каждое не стоп слово в нашем заведённом лексиконе.
+
+```{r}
+wine_ratings_words %>% 
+  filter(wine_id == 1) %>% 
+  select(word, points) %>% 
+  inner_join(lexicon, by = "word")
+```
+
+Видно, что в целом позитивный отзыв имеет два слова которые имеют обычно негативный эффект. Теперь найдём самый несбалансированный отзыв
+
+```{r}
+wine_ratings %>% 
+  mutate(wine_id = row_number()) %>% 
+  arrange(points) %>% 
+  head(1) %>% 
+  select(wine_id, description)
+```
+ 
+Это 319 по счёту отзыв. Построим для него график, положительных и негавтиных слов отзыва
+
+```{r}
+wine_ratings_words %>% 
+  filter(wine_id == 319) %>% 
+  select(word, points) %>% 
+  inner_join(lexicon, by = "word") %>% 
+  mutate(word = fct_reorder(word, coefficient)) %>% 
+  ggplot(aes(word, coefficient)) +
+  geom_col() +
+  coord_flip()
 ```
 
 
