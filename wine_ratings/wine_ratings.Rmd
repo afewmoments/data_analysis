@@ -27,7 +27,7 @@ wine_ratings <- readr::read_csv("https://raw.githubusercontent.com/rfordatascien
 
 
 ```{r}
-wine_ratings %>% 
+wine_ratings %>% View()
   count(country, sort = TRUE)
 
 # посмотрим разные разрезы данных
@@ -354,4 +354,20 @@ wine_ratings_words %>%
   coord_flip()
 ```
 
+```{r}
+lm_wine <- wine_ratings %>% 
+  replace_na(list(taster_name = "Missing", country = "Missing")) %>% 
+  mutate(country = fct_relevel(fct_lump(country, 7), "US")) %>% 
+  mutate(taster_name = fct_relevel(fct_lump(taster_name, 6), "Missing")) %>% 
+  mutate(variety = fct_relevel(fct_lump(variety, 200), "Other")) %>% 
+  lm(points ~ log2(price) + country + year + variety, data = .)
+
+summary(lm_wine)
+
+str(wine_ratings)
+str(predict)
+
+
+lm_wine$predict <- predict(lm_wine, newdata = wine_ratings, type = "response")
+```
 
