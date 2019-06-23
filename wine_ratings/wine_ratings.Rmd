@@ -200,9 +200,11 @@ wine_ratings_words_cors <- wine_ratings_words %>%
 wine_ratings_words_cors
 ```
 
+Отфильтруем уникальные значения
+
 ```{r}
 wine_words_filtered <- wine_ratings_words %>% 
-  distinct(wine_id, word) %>% 
+  ?distinct(wine_id, word) %>% 
   add_count(word) %>% 
   filter(n >= 100)
 
