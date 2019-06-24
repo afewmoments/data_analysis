@@ -361,15 +361,31 @@ lm_wine <- wine_ratings %>%
   replace_na(list(taster_name = "Missing", country = "Missing")) %>% 
   mutate(country = fct_relevel(fct_lump(country, 7), "US")) %>% 
   mutate(taster_name = fct_relevel(fct_lump(taster_name, 6), "Missing")) %>% 
-  mutate(variety = fct_relevel(fct_lump(variety, 200), "Other")) %>% 
-  lm(points ~ log2(price) + country + year + variety, data = .)
+  mutate(variety = fct_relevel(fct_lump(variety, 200), "Other")) %>%
+  select(points, country, price, year, variety) %>%
+  filter(!is.na(year))
 
-summary(lm_wine)
+lm_wine_model <- lm(points ~ log2(price) + country + year + variety, data = lm_wine)
 
-str(wine_ratings)
-str(predict)
+lm_wine$predict <- predict(object = lm_wine_model, type = "response")
 
 
-lm_wine$predict <- predict(lm_wine, newdata = wine_ratings, type = "response")
+
+
+lm_wine <- lm_wine %>%
+ mutate(mark = ifelse(abs(predict - points) <= 5, "good", "bad"))
+  
+lm_wine %>%
+  ggplot(aes(log2(price), predict, color = mark)) +
+  geom_point() + 
+  facet_grid(~ mark)
 ```
 
+График выше, показывает, что наша модель не очень-то хорошо предсказывает оценку.
+
+
+```{r}
+x <- rnorm(15)
+y <- x + rnorm(15)
+predict(lm(y ~ x))
+```
