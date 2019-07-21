@@ -1,0 +1,180 @@
+---
+title: "Internet market comments"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Описание
+
+Это данные из kaggle 
+
+This dataset include fields:
+
+* item_id1 - item category
+
+* item_id2 - item id
+
+* brand - manufacturer id
+
+* date - comment date
+
+* comment - comment text
+
+* negative_comment - additional comment, negative sides
+
+* positive_comment - additional comment, positive sides
+
+# Подготовка данных
+
+```{r}
+library(tidyverse)
+library(tidytext)
+```
+
+```{r}
+data <- readr::read_csv("train.csv") %>% 
+  mutate(item_id1 = as.factor(item_id1),
+         item_id2 = as.factor(item_id2),
+         brand = as.factor(brand)) %>% 
+  rename(rating = reting)
+```
+
+# Разведочный анализ
+
+Посмотрим какое количество уникальных товаров
+
+```{r}
+data %>% 
+  count(item_id1, item_id2, brand) %>% 
+  arrange(desc(n))
+```
+
+Всего 665 различных товаров
+
+Рассмотрим подробнее существующую группы
+
+```{r}
+# какое кол-во групп
+data %>% 
+  count(item_id1) %>% 
+  arrange(desc(n))
+
+# сколько брэндов
+data %>% 
+  count(brand) %>% 
+  arrange(desc(n))
+
+# сколько товаров в категориях
+data %>% 
+  count(item_id1, item_id2) %>% 
+  arrange(desc(n))
+
+# Какая средняя оценка в группе
+item_rating <- data %>% 
+  group_by(item_id1, item_id2) %>% 
+  summarize(avg_rating = mean(rating),
+            med_rating = median(rating)) %>% 
+  arrange(avg_rating)
+
+# Лучший-худший брэнд
+brand_rating <- data %>% 
+  group_by(brand) %>% 
+  summarise(avg_rating = mean(rating),
+            comment_count = n()) %>% 
+  arrange(desc(comment_count))
+
+# распределение оценок по числу отзывов
+data %>% 
+  group_by(brand) %>% 
+  summarise(avg_rating = mean(rating),
+            comment_count = n()) %>% 
+  ggplot(aes(comment_count, avg_rating)) +
+  geom_point()
+
+
+```
+
+Перейдём к пользователям, оценивающим товары
+
+```{r}
+# Посмотрим, кто чемпион по количеству отзывов
+data %>% 
+  count(user_id) %>% 
+  arrange(desc(n))
+```
+
+3232 пользователя за всё время оставили почти 15 тысяч отзывов.
+
+```{r}
+# Оценки самого активного пользователя
+data %>% 
+  filter(user_id == 767) %>% 
+  ggplot(aes(rating)) +
+  geom_histogram()
+
+# Распределение всей совокупности оценок
+data %>% 
+  ggplot(aes(rating)) +
+  geom_histogram()
+
+# Каким временем датируются обзоры
+data %>% 
+  ggplot(aes(date)) +
+  geom_histogram()
+```
+
+
+Видно что отзывов на сайте было больше в 2010-2011 год. 
+Вероятно потом популярность сайта упала. Или это особенности отбора данных
+
+Посмотрим какие категории товаров были популярнее спустя время
+
+```{r}
+data %>%
+  ggplot(aes(date, fill = item_id1)) +
+  geom_histogram()
+```
+
+На вскидку товары групп 101...219 за последние 8 лет стали реже продаваться на этом сайте.
+
+Что это за товары
+
+```{r}
+data %>% 
+  filter(date <= "2011-01-01") %>% 
+  count(item_id1) %>% 
+  arrange(desc(n))
+```
+
+самая многочисленная группа в период до 2011 года --- компьютеры. 
+После этого периода, спрос на компьютеры на этом сайте упал.
+
+
+
+Посмотрим, какие категории чаще другихъ плохо оцениваются
+
+```{r}
+data %>%
+  ggplot(aes(date, fill = item_id1)) +
+  geom_histogram() +
+  facet_grid(~rating) +
+  theme(legend.position = "none")
+```
+
+На вскидку, нет существенных отклонений.
+
+### Регрессия
+
+Подгрузим список стоп-слов на русском
+
+```{r}
+stopwords <- readr::read_csv("https://raw.githubusercontent.com/stopwords-iso/stopwords-ru/master/stopwords-ru.txt")
+```
+
+
+
+```{r}
+
+```
+
