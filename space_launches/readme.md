@@ -1,6 +1,6 @@
 # Data Info
 
-Данные брал у [The Economist GitHub](https://github.com/TheEconomist/graphic-detail-data/tree/master/data/2018-10-20_space-launches). Всю описательную часть взял напрямую с его GitHub readme.
+Данные брал у [The Economist GitHub](https://github.com/TheEconomist/graphic-detail-data/tree/master/data/2018-10-20_space-launches). Всю описательную часть для Readme взял напрямую с его GitHub readme.
 
 # Space launches
 
