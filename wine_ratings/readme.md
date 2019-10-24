@@ -1,9 +1,6 @@
 # Wine ratings
 
-This week's dataset is a wine-enthusiast ratings dataset from [Kaggle](https://www.kaggle.com/zynicide/wine-reviews). H/t to Georgios Karamanis for sharing this week's dataset as an [Issue](https://github.com/rfordatascience/tidytuesday/issues) on our GitHub! If you want to submit a dataset, please drop a link and some context as an issue. Thanks!
-
-An article with some interesting graphs (different dataset) can be found [here](https://www.vivino.com/wine-news/how-much-does-a-good-bottle-of-wine-cost). They found some clear relationships, but it also appears that cost is factored into their rating system. How does the Wine Enthusiast ratings scale compare?
-
+This dataset is a wine-enthusiast ratings dataset from [Kaggle](https://www.kaggle.com/zynicide/wine-reviews).
 
 # Get the data!
 
