@@ -3,7 +3,8 @@
 ```{r}
 library(tidyverse)
 library(lubridate)
-data_set <- tibble(date = c("01.07.2018 08:14:13.00000", "2019-11-16 16:37:05.0000000"))
+data_set <- tibble(date = c("01.07.2018 08:14:13.00000", "2019-11-16 16:37:05.0000000", "2019-11-17 16:37:05.0000000"),
+                   be = c("KLN", "SRT", "KLN"), source = 0:2, ActionID = c(628, 621, 621), brigada = c("rem", "fond", "rem"))
 
 data_set %>% 
   mutate(clean_date = as.Date.character(date, format = "%d.%m.%Y"))
@@ -12,17 +13,14 @@ data_set %>%
   mutate(clean_date = as.Date.character(date, format = "%Y-%m-%d"))
 
 
-data_set %>% 
+cleaned <- data_set %>% 
   mutate(first_date = as.Date.character(date, format = "%d.%m.%Y"),
          second_date = as.Date.character(date, format = "%Y-%m-%d"),
          third_date = as.Date.numeric(ifelse(is.na(first_date), 
-                                             second_date, first_date), origin = "1970-01-01"))
+                                             second_date, first_date), origin = "1970-01-01"),
+         forth_date = month(third_date, label = TRUE))
 
-data_set %>% 
-  mutate(clean_date = as.Date.character(date, tryFormats = c("%d.%m.%Y", "%Y-%m-%d")))
-
-data_set %>% 
-  mutate(clean_date = as.Date.character(date, format = "%d.%m.%Y", tryFormats = c("%Y-%m-%d", "%Y/%m/%d")))
+ggplot(cleaned, aes(forth_date, fill = be)) + geom_bar()
 
 ```
 
