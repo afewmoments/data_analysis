@@ -1,0 +1,28 @@
+Анализ данных мобильного приложения
+
+```{r}
+library(tidyverse)
+library(lubridate)
+data_set <- tibble(date = c("01.07.2018 08:14:13.00000", "2019-11-16 16:37:05.0000000"))
+
+data_set %>% 
+  mutate(clean_date = as.Date.character(date, format = "%d.%m.%Y"))
+
+data_set %>% 
+  mutate(clean_date = as.Date.character(date, format = "%Y-%m-%d"))
+
+
+data_set %>% 
+  mutate(first_date = as.Date.character(date, format = "%d.%m.%Y"),
+         second_date = as.Date.character(date, format = "%Y-%m-%d"),
+         third_date = as.Date.numeric(ifelse(is.na(first_date), 
+                                             second_date, first_date), origin = "1970-01-01"))
+
+data_set %>% 
+  mutate(clean_date = as.Date.character(date, tryFormats = c("%d.%m.%Y", "%Y-%m-%d")))
+
+data_set %>% 
+  mutate(clean_date = as.Date.character(date, format = "%d.%m.%Y", tryFormats = c("%Y-%m-%d", "%Y/%m/%d")))
+
+```
+
