@@ -1,0 +1,20 @@
+---
+title: "Squirrels going on analysis"
+output: html_document
+---
+
+# Libraries
+
+```{r}
+library(tidyverse)
+```
+
+
+# Preparing data
+
+```{r}
+nyc_squirrels <- read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2019/2019-10-29/nyc_squirrels.csv")
+
+nyc_squirrels %>% glimpse()
+```
+
