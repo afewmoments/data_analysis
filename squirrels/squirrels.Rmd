@@ -7,6 +7,7 @@ output: html_document
 
 ```{r}
 library(tidyverse)
+library(viridis)
 ```
 
 
@@ -15,6 +16,41 @@ library(tidyverse)
 ```{r}
 nyc_squirrels <- read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2019/2019-10-29/nyc_squirrels.csv")
 
-nyc_squirrels %>% glimpse()
+# какие цвета чаще встречаются
+nyc_squirrels %>% 
+  count(primary_fur_color, highlight_fur_color, sort = TRUE)
+```
+
+```{r}
+# где чаще встречаются
+nyc_squirrels %>% 
+  ggplot(aes(long, lat, color = primary_fur_color, alpha = 0.1)) + 
+  geom_point()
+```
+
+```{r}
+by_hectare <- nyc_squirrels %>% 
+  group_by(hectare) %>% 
+  summarise(long = mean(long),
+            lat = mean(lat),
+            pct_gray = mean(primary_fur_color == "Gray", na.rm =TRUE),
+            n = n())
+
+# частота появления в одном из участков
+by_hectare %>% 
+  filter(n >= 10) %>% 
+  ggplot(aes(long, lat, size = n, color = pct_gray)) + 
+  geom_point() +
+  theme_void() + 
+  scale_color_viridis()
+```
+
+
+```{r}
+# предсказание
+by_hectare %>% 
+  mutate(n_gray = round(pct_gray * n)) %>% 
+  glm(cbind(n_gray, n - n_gray) ~ lat, data = ., family = "binomial") %>% 
+  summary()
 ```
 
