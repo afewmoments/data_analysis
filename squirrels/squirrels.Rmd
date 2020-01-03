@@ -1,19 +1,21 @@
 ---
-title: "Squirrels going on analysis"
+title: "Анализ поведения белок в Центральном парке Нью-Йорка"
 output: html_document
+editor_options: 
+  chunk_output_type: console
 ---
 
-# Libraries
+# Библиотеки
 
-```{r}
+```{r, message=FALSE}
 library(tidyverse)
 library(viridis)
 ```
 
 
-# Preparing data
+# Подготовка данных
 
-```{r}
+```{r, message=FALSE}
 nyc_squirrels <- read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2019/2019-10-29/nyc_squirrels.csv")
 
 # какие цвета чаще встречаются
@@ -30,6 +32,7 @@ nyc_squirrels %>%
 
 ```{r}
 by_hectare <- nyc_squirrels %>% 
+  filter(!is.na(primary_fur_color)) %>% 
   group_by(hectare) %>% 
   summarise(long = mean(long),
             lat = mean(lat),
@@ -54,3 +57,96 @@ by_hectare %>%
   summary()
 ```
 
+Результы говорят, что вероятнее всего вы встретите серую белку в северной части парка.
+
+```{r}
+nyc_squirrels %>% 
+  count(primary_fur_color, highlight_fur_color, sort = TRUE)
+```
+
+Посмотрим безразличны ли белки к человеку?
+Для этого мы предскажем поведение белки, в качестве предикторов будем использовать 
+
+```{r}
+glm(runs_from ~ lat, data = nyc_squirrels, family = "binomial") %>% 
+  summary()
+```
+
+Видим что нужно отвершать нулевую гипотезу о независимости убегания белки от координаты.
+Давайте проверим, где же наблюдается чёткая зависимость от координаты.
+Для этого 
+
+```{r}
+nyc_squirrels %>% 
+  add_count(hectare) %>% 
+  group_by(hectare, n) %>% 
+  summarise_at(vars(long, lat, runs_from, indifferent), mean) %>% 
+  ungroup() %>% 
+  filter(n >= 10) %>% 
+  ggplot(aes(long, lat, size = n, color = runs_from)) +
+  geom_point() + 
+  theme_void() +
+  scale_color_gradient2(low = "blue", high = "red", mid = "pink",
+                        midpoint = 0.3, labels = scales::percent) +
+  labs(color = "% убегающих белок",
+       size = "количество белок", 
+       title = "Белки в северо-западной части Центрального парка чаще убегают от людей")
+```
+
+Теперь попробуем улучшить визуализацию посредствам накладывания гугл-карт
+
+```{r}
+library(ggmap)
+
+by_hectare <- nyc_squirrels %>% 
+  add_count(hectare) %>% 
+  group_by(hectare, n) %>% 
+  summarise_at(vars(long, lat, runs_from, indifferent), mean) %>% 
+  ungroup() %>% 
+  filter(n >= 10)
+
+by_hectare %>% 
+  ggplot(aes(long, lat, size = n, color = runs_from)) +
+  geom_point() + 
+  theme_void() +
+  scale_color_gradient2(low = "blue", high = "red", mid = "pink",
+                        midpoint = 0.3, labels = scales::percent) +
+  labs(color = "% убегающих белок",
+       size = "количество белок", 
+       title = "Белки в северо-западной части Центрального парка чаще убегают от людей")
+```
+
+```{r}
+#Произведём настройки для получения карт
+#register_google()
+
+by_hectare %>% head(1) %>% pull(long)
+by_hectare %>% head(1) %>% pull(lat)
+```
+
+С гуглом не получается, пробуем вот тут [скачать](https://www.dropbox.com/s/aqefleiou923wxl/CentralAndProspectParks.zip) тропинки Центрального парка
+
+
+
+```{r}
+#install.packages("sf")
+library(sf)
+central_park_sf <- read_sf("CentralAndProspectParks")
+
+ggplot(central_park_sf) +
+  geom_sf()
+```
+
+Отлично, вот так выглядит карта центрального парка с объектами на ней.
+Теперь нанесём на эту карту нашу визуализацию с белками
+
+```{r}
+ggplot(by_hectare) +
+  geom_sf(data = central_park_sf) +
+  geom_point(aes(long, lat, size = n, color = runs_from)) +
+  theme_void() +
+  scale_color_gradient2(low = "blue", high = "red", mid = "pink",
+                        midpoint = 0.3, labels = scales::percent)
+```
+
+Хорошо, теперь попробуем сделать Shiny-визуализацию, приложение с визуализацией находится в этой же директории
