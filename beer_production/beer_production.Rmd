@@ -1,0 +1,241 @@
+---
+title: "Производство пива"
+output: html_document
+name: metrics_beer_prodaction
+owner: stas
+metrics:
+  nb_pounds:
+    title: "Число фунтов произведено"
+    description: "Количество фунтов использовано в производстве пива в Штатах"
+dimensions:
+  material_type:
+    title: Тип
+    description: Зерна \ не зерна
+  material:
+    title: Материал
+    description: Пшеница, хмель, солод и т.п.
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Библиотеки
+```{r}
+library(tidyverse)
+library(lubridate)
+theme_set(theme_light())
+#devtools::install_github("ramnathv/tidymetrics")
+library(tidymetrics)
+#devtools::install_github("ramnathv/shinymetrics")
+library(shinymetrics)
+#devtools::install_github("ramnathv/shinybones")
+library(shinybones)
+```
+
+# Получаем данные
+
+```{r}
+# Get the Data
+
+brewing_materials <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-03-31/brewing_materials.csv')  %>% 
+  mutate(date = ymd(paste(year, month, 1)))
+beer_taxed <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-03-31/beer_taxed.csv')
+brewer_size <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-03-31/brewer_size.csv')
+beer_states <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-03-31/beer_states.csv')
+
+# Or read in with tidytuesdayR package (https://github.com/thebioengineer/tidytuesdayR)
+# PLEASE NOTE TO USE 2020 DATA YOU NEED TO USE tidytuesdayR version ? from GitHub
+
+# Either ISO-8601 date or year/week works!
+
+# Install via devtools::install_github("thebioengineer/tidytuesdayR")
+
+# tuesdata <- tidytuesdayR::tt_load('2020-03-31')
+# tuesdata <- tidytuesdayR::tt_load(2020, week = 14)
+
+
+# brewing_materials <- tuesdata$brewing_materials
+```
+
+
+# Анализ данных
+
+Какие ингридиенты используются для производства пива в Штатах
+
+```{r}
+brewing_materials %>% 
+  filter(year == max(year) & month == max(month)) %>% 
+  ggplot(aes(type, month_current, fill = material_type)) + 
+  geom_col() +
+  coord_flip()
+```
+
+Здесь указаны тоталы, их нужно убрать.
+```{r}
+brewing_materials %>% 
+  filter(!str_detect(material_type, "Total")) %>% 
+  filter(year == max(year) & month == max(month)) %>% 
+  mutate(type = fct_reorder(type, month_current)) %>% 
+  ggplot(aes(type, month_current, fill = material_type)) + 
+  geom_col() +
+  coord_flip()
+```
+
+Покажем, как использование материалов изменялось со временем,
+для этого добавим дату в исходные данные
+```{r}
+brewing_materials %>% 
+  filter(!str_detect(material_type, "Total")) %>% 
+  filter(date == max(date)) %>% 
+  mutate(type = fct_reorder(type, month_current)) %>% 
+  ggplot(aes(type, month_current, fill = material_type)) + 
+  geom_col() +
+  coord_flip()
+```
+
+На этом графике видно, что что-то пошло не так после 2016 года --- скорее всего не хватает данных.
+```{r}
+brewing_materials %>% 
+  filter(!str_detect(material_type, "Total")) %>%
+  ggplot(aes(date, month_current, fill = type)) +
+  geom_col()
+```
+
+Ограничимся данными до 2016 года
+
+```{r}
+brewing_materials <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-03-31/brewing_materials.csv')  %>% 
+  mutate(date = ymd(paste(year, month, 1))) %>% 
+  filter(year < 2016)
+```
+
+
+```{r}
+brewing_materials %>% 
+  filter(!str_detect(material_type, "Total")) %>%
+  mutate(type = fct_reorder(type, month_current)) %>% 
+  ggplot(aes(date, month_current, fill = type)) +
+  #scale_y_log10() +
+  scale_y_continuous(labels = scales::comma) +
+  geom_col() +
+  labs(x = "Время",
+       y = "Фунты производства",
+       fill = "Материалы"
+  )
+```
+
+Тут есть два значения, которые выбиваются из всех. Посмотрил сначала на значениях Тотал
+
+```{r}
+brewing_materials %>% 
+  filter(str_detect(material_type, "Total.*product")) %>%
+  mutate(type = fct_reorder(type, month_current)) %>% 
+  ggplot(aes(date, month_current, fill = type)) +
+  #scale_y_log10() +
+  scale_y_continuous(labels = scales::comma) +
+  geom_col() +
+  labs(x = "Время",
+       y = "Фунты производства",
+       fill = "Материалы"
+  )
+```
+
+# Вывод данных в Шайни
+
+Воспользуемся пакетом `tidymetrics`, тут есть две классные функции.
+Они работают как обычная группировка, но добавляют ещё одно измерение "All" для суммы всех значений параметра
+```{r}
+brewing_summarized <- brewing_materials %>% 
+  rename(material = type) %>% 
+  filter(!str_detect(material_type, "Total")) %>%
+  cross_by_dimensions(material, material_type) %>% 
+  cross_by_periods(c("month", "quarter", "year")) %>% 
+  summarise(nb_pounds = sum(month_current)) %>% 
+  ungroup()
+```
+
+Благодаря этим функциям, можно получать на одних и тех же графиках данные за разные периоды
+```{r}
+brewing_summarized %>% 
+  filter(material_type == "All", period == "year", material == "All") %>% 
+  ggplot(aes(date, nb_pounds, fill = material)) + 
+  geom_col()
+```
+
+Это очень полезно для например Шайни приложений.
+Группировка напомню проводилась по двум переменным
+
+```{r}
+brewing_summarized %>% 
+  filter(material_type == "All", period == "year", material != "All") %>% 
+  ggplot(aes(date, nb_pounds, fill = material)) + 
+  geom_col()
+```
+
+Реальная сила, это добавить вывод этой функции в Rmd файл
+```{r}
+use_metrics_scaffold(brewing_summarized)
+```
+
+После изменения описаний, сначала сохранить файл, затем сделать следующее
+
+```{r}
+brewing_metrics <- create_metrics(brewing_summarized)
+```
+
+После этого у нас появится тибл, в котором есть описательные вещи для бизнес-аналитики.
+Далее, чтобы визуализировать, воспользуемся пакетом `shinymetrics`
+
+
+```{r}
+preview_metric(brewing_metrics$beer_prodaction_nb_pounds)
+```
+
+## Распределение размера пивоварен
+
+```{r}
+brewer_size %>%
+  filter(!str_detect(brewer_size, "Total")) %>% 
+  ggplot(aes(year, total_barrels, fill = brewer_size)) + 
+  geom_col()
+```
+
+Сортировка этих данных выглядит ужасно. Приведём её в порядок, не будем создавать новую колонку, сделаем это лучше
+
+```{r}
+brewer_size %>%
+  filter(!str_detect(brewer_size, "Total")) %>% 
+  mutate(brewer_size = fct_reorder(brewer_size, parse_number(brewer_size))) %>% 
+  ggplot(aes(year, total_barrels, fill = brewer_size)) + 
+  geom_col()
+```
+
+УЖе лучше, но две категории Under и Zero выбиваются из общего порядка.
+
+```{r}
+brewer_size %>%
+  filter(!str_detect(brewer_size, "Total"), !is.na(total_barrels)) %>% 
+  mutate(brewer_size = fct_lump(brewer_size, 5, w = total_barrels),
+         bzrrel_number = coalesce(parse_number(as.character(brewer_size)), 1),
+    brewer_size = fct_reorder(brewer_size, bzrrel_number)) %>% 
+  ggplot(aes(year, total_barrels, fill = brewer_size)) + 
+  geom_col()
+```
+
+
+```{r}
+brewing_materials %>% 
+  filter(material_type == "Total Used") %>% 
+  ggplot(aes(month, month_current, color = factor(year))) +
+  geom_line() +
+  expand_limits(y = 0)
+```
+
+
+## Где производилось пиво
+
+```{r}
+
+```
+
