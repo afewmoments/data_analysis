@@ -31,6 +31,15 @@ library(tidymetrics)
 library(shinymetrics)
 #devtools::install_github("ramnathv/shinybones")
 library(shinybones)
+#install.packages("maptools")
+#install.packages("rgeos")
+library(maps)
+library(sf)
+#install.packages("ggthemes")
+library(ggthemes)
+library(viridis)
+#devtools::install_github("thomasp85/gganimate")
+library(gganimate)
 ```
 
 # Получаем данные
@@ -236,6 +245,63 @@ brewing_materials %>%
 ## Где производилось пиво
 
 ```{r}
-
+state_percentes_2019 <- beer_states %>% 
+  filter(year == max(year), state != "total") %>% 
+  group_by(state) %>% 
+  mutate(percent = barrels/sum(barrels)) %>% 
+  ungroup()
 ```
 
+Построим карту
+```{r}
+states <- st_as_sf(map("state", plot = FALSE, fill = TRUE))
+
+# из пакета получаем аббревиатуры штатов
+state.abb
+```
+
+Теперь нам нужно получить сджойнить эти аббревиатуры к штатам производства
+
+```{r}
+beer_states %>% 
+  mutate(ID = state.name[match(state, state.abb)])
+```
+
+```{r}
+states_joined <- state_percentes_2019 %>% 
+  mutate(ID = str_to_lower(state.name[match(state, state.abb)])) %>% 
+  inner_join(states, by = "ID")
+
+states_joined %>% 
+  ggplot(aes(fill = percent)) +
+  geom_sf(aes(geometry = geometry)) +
+  ggthemes::theme_map() +
+  facet_wrap(~type) +
+  labs(title = "Распределение прозводства пива в тарах, по штатам",
+       subtitle = "2019 год") +
+  scale_fill_viridis() +
+  theme(legend.position = "bottom")
+```
+
+# Какая была динамика
+
+```{r}
+beer_states %>% 
+  filter(state != "total") %>% 
+  group_by(state) %>% 
+  mutate(percent = barrels/sum(barrels)) %>% 
+  ungroup() %>% 
+  mutate(ID = str_to_lower(state.name[match(state, state.abb)])) %>% 
+  inner_join(states, by = "ID") %>% 
+  ggplot(aes(fill = percent, geometry = geometry)) +
+  geom_sf() +
+  transition_time(year) +
+  ggthemes::theme_map() +
+  facet_wrap(~type) +
+  labs(title = "Распределение прозводства пива в тарах, по штатам",
+       subtitle = "2019 год") +
+  scale_fill_viridis() +
+  theme(legend.position = "bottom")
+```
+
+todo --- поработать с пакетом gganimate
