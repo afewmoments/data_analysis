@@ -1,0 +1,86 @@
+---
+title: "Measles"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Get data
+
+Libraries
+```{r}
+library(tidyverse)
+library(skimr) # для сводной инфы
+library(tidymodels)
+theme_set(theme_light())
+```
+
+
+```{r}
+measles <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-02-25/measles.csv')
+
+measles_df <- measles %>% 
+  filter(mmr > 0) %>% 
+  transmute(state, mmr_treshold = case_when(mmr > 95 ~ "Above", TRUE ~ "Below")) %>% 
+  mutate_if(is.character, factor)
+
+skim(measles_df)
+```
+
+# Exploratory analysis
+
+```{r}
+measles_df %>% 
+  group_by(state) %>% 
+  summarise(mmr = mean(mmr_treshold == "Above")) %>% 
+  mutate(state = fct_reorder(state, mmr)) %>% 
+  ggplot(aes(state, mmr, fill = state)) +
+  geom_col() +
+  coord_flip() +
+  scale_y_continuous(labels = scales::percent)
+  
+```
+
+
+# Tidymodels
+
+```{r}
+glm_fit <- logistic_reg() %>% 
+  set_engine("glm") %>% 
+  fit(mmr_treshold ~ state, data = measles_df)
+
+tidy(glm_fit) %>% 
+  filter(p.value < 0.05)                         
+```
+
+```{r}
+new_schools <- tibble(state = unique(measles_df$state))
+
+mean_pred <-  predict(glm_fit, 
+                      new_data = new_schools,
+                      type = "prob")
+
+conf_int <-  predict(glm_fit, 
+                      new_data = new_schools,
+                      type = "conf_int")
+
+
+schools_result <- new_schools %>% 
+  bind_cols(mean_pred) %>% 
+  bind_cols(conf_int)
+
+```
+
+```{r}
+schools_result %>% 
+  mutate(state = fct_reorder(state, .pred_Above)) %>% 
+  ggplot(aes(state, .pred_Above, fill = state)) +
+  geom_errorbar(aes(ymin = .pred_lower_Above, ymax = .pred_upper_Above)) +
+  geom_col() +
+  coord_flip()
+```
+
+
+
