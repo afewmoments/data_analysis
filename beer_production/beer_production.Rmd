@@ -40,6 +40,8 @@ library(ggthemes)
 library(viridis)
 #devtools::install_github("thomasp85/gganimate")
 library(gganimate)
+#install.packages("tidymodels")
+library(tidymodels)
 ```
 
 # Получаем данные
@@ -305,3 +307,89 @@ beer_states %>%
 ```
 
 todo --- поработать с пакетом gganimate
+
+
+# Элементы ML
+
+```{r}
+brewing_filtered <- brewing_materials %>%
+  filter(
+    type %in% c(
+      "Malt and malt products",
+      "Sugar and syrups",
+      "Hops (dry)"
+    ),
+    year < 2016,
+    !(month == 12 & year %in% 2014:2015)
+  ) %>%
+  mutate(
+    date = paste0(year, "-", month, "-01"),
+    date = lubridate::ymd(date)
+  )
+
+brewing_filtered %>%
+  ggplot(aes(date, month_current, color = type)) +
+  geom_point()
+```
+
+На графике выше видна сильный годовой паттерн.
+Мы хотим измерить, сколько сахара производители пива используют по отношению к солоду.
+
+```{r}
+brewing_materials <- brewing_filtered %>%
+  select(date, type, month_current) %>%
+  pivot_wider(
+    names_from = type,
+    values_from = month_current
+  ) %>%
+  janitor::clean_names()
+
+brewing_materials
+```
+
+```{r}
+brewing_materials %>%
+  ggplot(aes(malt_and_malt_products, sugar_and_syrups)) +
+  geom_smooth(method = "lm") +
+  geom_point()
+```
+
+В этих отношениях много различий, но производители пива используют больше сахара, когда используют больше солода. Как они соотносятся?
+
+```{r}
+beer_fit <- lm(sugar_and_syrups ~ 0 + malt_and_malt_products,
+  data = brewing_materials
+)
+
+summary(beer_fit)
+```
+
+
+## Bootstrap ресэмплинг
+
+Создадим тиббл, в котором будет тысяча варианта бутстрэпа исходной выборки
+
+```{r}
+set.seed(123)
+beer_boot <- bootstraps(brewing_materials, times = 1e3, apparent = TRUE)
+beer_boot
+
+```
+
+Далее, давайте обучим модель каждому из этих вариантов.
+
+```{r}
+beer_boot %>%
+  mutate(model = map(splits, ~ lm(sugar_and_syrups ~ 0 + malt_and_malt_products, data = .)),
+    coef_info = map(model, tidy))
+
+lm(sugar_and_syrups ~ 0 + malt_and_malt_products, data = beer_boot$splits)
+
+
+map(beer_boot$splits, ~ lm(sugar_and_syrups ~ 0 + malt_and_malt_products, data = splits))
+```
+
+
+
+
+
