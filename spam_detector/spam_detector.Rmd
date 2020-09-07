@@ -52,16 +52,6 @@ getMessage <- function(path) {
   
   return(paste(msg, collapse = "\n"))
 }
-
-test_path <- "data/spam_learn/0000.7b1b73cf36cf9dbc3d64e3f2ee2b91f1"
-con <- file(test_path, open = "rt", encoding = "latin1")
-text <- readLines(con)
-text[seq(ifelse(is.na((which(text == "")[1])), 1, which(text == "")[1] + 1), length(text), 1)]
-seq(as.numeric(which(text == "")[1] + 1), length(text), 1)
-which(text[1] == "")
-
-
-
 ```
 
 Каждый отдельно взятый элемент  вектора — это  отдельное письмо
@@ -89,7 +79,7 @@ M — количество  документов в корпусе тексто�
 Ячейка [iTerm, jDoc] указывает, сколько раз терм с номером iTerm встречается в письме с номером jDoc.
 
 ```{r}
-getDTM <- function(doc.vec) {
+getTDM <- function(doc.vec) {
   control <- list(stopwords = TRUE,
                   removePunctuation = TRUE,
                   removeNumbers = TRUE,
@@ -98,14 +88,152 @@ getDTM <- function(doc.vec) {
   doc.dtm <- TermDocumentMatrix(doc.corpus, control)
   return(doc.dtm)
 }
+
+spam_learn.tdm <- getTDM(all_spam.learn)
+```
+
+Функция `getDTM` получает  на входе вектор со всеми текстовыми сообщениями из всех спамных писем, а на выходе выдает TDM.
+
+
+# Конструируем признаки
+
+Напомню, мы хотим нат ренировать детектор таким образом, чтобы он мог
+оценивать вероятность того, что анализируемое письмо — это спам. Как мы
+собираемся это делать? Выискивая в анализируемом письме термы, которые
+для нас являются признаками спама. 
+
+```{r}
+spam_learn.matrix <- as.matrix(spam_learn.tdm)
+spam_learn.counts <- rowSums(spam_learn.matrix)
+spam_learn.df <- data.frame(cbind(names(spam_learn.counts),
+                                  as.numeric(spam_learn.counts)))
+names(spam_learn.df) <- c("term", "frequency")
+spam_learn.df$frequency <- as.numeric(spam_learn.df$frequency)
+```
+
+# Гененрируем тренировочные данные
+
+```{r}
+spam_learn.occurence <- sapply(1:nrow(spam_learn.matrix),
+                               function(i){
+                                 length(which(spam_learn.matrix[i, ] > 0)) /
+                                   ncol(spam_learn.matrix)
+                               })
+spam_learn.density <- spam_learn.df$frequency / sum(spam_learn.df$frequency)
+
+spam_learn.df <- transform(spam_learn.df,
+                           density = spam_learn.density,
+                           occurence = spam_learn.occurence)
+
+head(spam_learn.df[with(spam_learn.df, order(-frequency)),])
+```
+
+У нас оказались мусорные письма или битые файлы, поэтому получился такой результат.
+Такой результат конечно никуда не годится, но с точки зрения этапности обучения алгоритма, это нам не помешает.
+
+Скорее всего на выходе мы получим мусор, но продолжим-с
+
+# Обрабатываем письма easy non spam
+
+Код такой же
+
+```{r}
+easy_nonspam_learn.docs <- dir(easy_nonspam_learn.path)
+easy_nonspam_learn.docs <- 
+                    easy_nonspam_learn.docs[which(easy_nonspam_learn.docs != "cmds")]
+all.easy_nonspam_learn <-
+                    sapply(easy_nonspam_learn.docs[1:length(spam_learn.docs)],
+                           function(p) getMessage(file.path(easy_nonspam_learn.path, p))
+                          )
+
+
+easy_nonspam_learn.tdm <- getTDM(all.easy_nonspam_learn)
+
+easy_nonspam_learn.matrix <- as.matrix(easy_nonspam_learn.tdm)
+easy_nonspam_learn.counts <- rowSums(easy_nonspam_learn.matrix)
+easy_nonspam_learn.df <- data.frame(cbind(names(easy_nonspam_learn.counts),
+                                          as.numeric(easy_nonspam_learn.counts)))
+names(easy_nonspam_learn.df) <- c("term", "frequency")
+easy_nonspam_learn.df$frequency <- as.numeric(easy_nonspam_learn.df$frequency)
+
+
+easy_nonspam_learn.occurrence <-
+                       sapply(1:nrow(easy_nonspam_learn.matrix),
+                              function(i)
+                              {
+                                  length(which(easy_nonspam_learn.matrix[i, ] > 0)) /
+                                  ncol(easy_nonspam_learn.matrix)
+                              })
+easy_nonspam_learn.density <- easy_nonspam_learn.df$frequency /
+                              sum(easy_nonspam_learn.df$frequency)
+
+easy_nonspam_learn.df <- transform(easy_nonspam_learn.df,
+                                   density = easy_nonspam_learn.density,
+                                   occurrence = easy_nonspam_learn.occurrence)
+
+head(easy_nonspam_learn.df[with(easy_nonspam_learn.df, order(-frequency)),])
 ```
 
 
+# Пишем классификатор
+
+Итак, у нас есть два набора тренировочных данных, то есть две копилки признаков: для спама и для не‐спама. Как они помогут нашему детектору отделять зерна от плевел? Детектор будет вычислять для каждой из копилок «наивную байесовскую  вероятность» того, что анализируемое письмо относится к еекатегории. Вот функция, которая воплощает эту идею.
 
 
+```{r}
+classifyEmail <- function(path, trainingDF, prior=0.5, cNone=1e-3)
+{
+	# email text data in a workable format
+	msg <- getMessage(path)
+	msg.tdm <- getTDM(msg)
+	msg.freq <- rowSums(as.matrix(msg.tdm))
+
+	msg.match <- intersect(names(msg.freq), trainingDF$term)
+
+	if(length(msg.match) < 1)
+	{
+		return(prior * cNone^(length(msg.freq)))
+	}
+	else
+	{
+		match.probs <- trainingDF$occurrence[match(msg.match, trainingDF$term)]
+		return(prior * prod(match.probs) * cNone ^ (length(msg.freq)-length(msg.match)))
+	}
+}
+```
+
+Мы передаем ей четыре параметра:
+1. path — письмо, которое надо проанализировать;
+2. trainingDF — срез данных по  тому тренировочному набору, с которым
+мы хотим сравнить анализируемое письмо;
+trainingDF
+3. prior — наше «наивное предположение» по поводу того, какая часть
+писем (в про центах) обычно оказывается спамом;
+prior
+4. cNone— константа вероятности, которую  мы присваиваем новым термам — тем, которых нет в тренировочных письмах.
 
 
+# Тестируем детектор
+
+```{r}
+hard_nonspam_verify.docs <- dir(hard_nonspam_verify.path)
+hard_nonspam_verify.docs <-
+                hard_nonspam_verify.docs[which(hard_nonspam_verify.docs != "cmds")]
+
+hard_nonspam_verify.spam_test <- sapply(hard_nonspam_verify.docs,
+                function(p) classifyEmail(file.path(hard_nonspam_verify.path, p),
+                                          trainingDF = spam_learn.df))
+    
+hard_nonspam_verify.nonspam_test <- sapply(hard_nonspam_verify.docs,
+                function(p) classifyEmail(file.path(hard_nonspam_verify.path, p),
+                                          trainingDF = easy_nonspam_learn.df))
+    
+hard_nonspam_verify.res <-
+          ifelse(hard_nonspam_verify.spam_test > hard_nonspam_verify.nonspam_test,
+                      TRUE, FALSE)
+
+summary(hard_nonspam_verify.res)
+```
 
 
-
-
+Ну результат откровенно говоря плохой, потому что в обучающей выборке на входе был мусор.
