@@ -63,6 +63,22 @@ saveRDS(vote_results, "vote_results.RDS")
 Построим график зависимости явки от числа голосов
 
 ```{r}
-
+vote_results %>% 
+  filter(region_id == 77) %>% 
+  mutate(turnout = votes/voters,
+         yes_p = yes/(yes+no+spoiled),
+         no_p = no/(yes+no+spoiled),
+         spoiled_p = spoiled/(yes+no+spoiled)) %>% 
+  pivot_longer(cols = c(yes_p, no_p, spoiled_p),
+               names_to = "answer",
+               values_to = "count") %>% 
+  ggplot(aes(turnout, count, color = answer)) +
+  geom_point(size = 0.01, aes(alpha = 0.01)) +
+  geom_hline(yintercept = 0.7829, aes(color = "green")) +
+  geom_vline(xintercept = 0.6703)
+  labs(x = "Явка",
+       y = "Результат голосования",
+       alpha = "",
+       fill = "Ответ")
 ```
 
