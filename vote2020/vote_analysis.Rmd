@@ -1,0 +1,68 @@
+---
+title: "Исследование результатов голосования по поправкам в конституцию"
+output: html_document
+---
+
+# Libraries
+
+```{r}
+library(tidyverse)
+library(httr)
+library(rvest)
+library(readxl)
+```
+
+# Get data
+
+Данные буду забирать с сайта Максима Каца. Понимаю, что это не самый достоверный источник.
+Но с сайта Каца данные получить проще всего
+
+```{r}
+# Функция получения данных с сайта Каца
+get_vote_data <- function(region) {
+  url <- paste0("https://maxkatz.ru/2020/data/", region, ".json")
+  data_from_region <- try(GET(url))
+  if (class(data_from_region)[[1]] == "try-error") return(NULL)
+  if (data_from_region$status_code != "200") return(NULL)
+  region_content <- content(data_from_region)
+  
+  region_results <- tibble(temporary_column = region_content) %>% 
+  unnest_wider(temporary_column) 
+  
+  return(region_results)
+}
+
+# Перечень регионов
+regions_id <- c(seq(1, 79), c(92, 91, 89, 87, 86, 83))
+
+# Применение функции ко всем регионам
+vote_results <- tibble()
+for (i in regions_id) {
+  temp_data <- get_vote_data(i) %>%
+    mutate(region_id = i)
+  vote_results <- bind_rows(vote_results, temp_data)
+}
+```
+
+Присоединю название региона
+```{r}
+region_name <- read_xlsx("data/region_name.xlsx")
+
+vote_results <- vote_results %>% 
+  left_join(region_name, by = c("region_id" = "code"))
+```
+
+Сохраню данные на всякий пожарный
+```{r}
+saveRDS(vote_results, "vote_results.RDS")
+```
+
+
+# Исследование
+
+Построим график зависимости явки от числа голосов
+
+```{r}
+
+```
+
