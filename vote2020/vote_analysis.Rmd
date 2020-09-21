@@ -10,6 +10,9 @@ library(tidyverse)
 library(httr)
 library(rvest)
 library(readxl)
+library(raster)
+library(sp) 
+library(RColorBrewer)
 ```
 
 # Get data
@@ -55,6 +58,7 @@ vote_results <- vote_results %>%
 Сохраню данные на всякий пожарный
 ```{r}
 saveRDS(vote_results, "vote_results.RDS")
+#vote_results <- read_rds("vote_results.RDS")
 ```
 
 
@@ -75,10 +79,87 @@ vote_results %>%
   ggplot(aes(turnout, count, color = answer)) +
   geom_point(size = 0.01, aes(alpha = 0.01)) +
   geom_hline(yintercept = 0.7829, aes(color = "green")) +
-  geom_vline(xintercept = 0.6703)
+  geom_vline(xintercept = 0.6703) +
   labs(x = "Явка",
        y = "Результат голосования",
        alpha = "",
        fill = "Ответ")
+
+vote_results %>% 
+  mutate(turnout = votes/voters,
+         yes_p = yes/(yes+no+spoiled),
+         no_p = no/(yes+no+spoiled),
+         spoiled_p = spoiled/(yes+no+spoiled)) %>% 
+  pivot_longer(cols = c(yes_p, no_p, spoiled_p),
+               names_to = "answer",
+               values_to = "count") %>% 
+  ggplot(aes(turnout, count, color = answer)) +
+  geom_point(size = 0.01, aes(alpha = 0.01))
+
 ```
+
+```{r}
+set.seed(42)
+data_set <- tibble(yes_turnout = rnorm(1000, mean = 0.5, sd = 0.15),
+       yes = sample(1:1000, 1000, replace=TRUE))
+
+
+data_set %>% 
+  mutate(bin=cut(yes_turnout,breaks = seq(0,1,0.01))) %>% 
+  group_by(bin) %>% 
+  summarise(sum=sum(yes)) %>% 
+  ggplot(aes(bin, sum)) +
+  geom_col()
+```
+
+
+```{r}
+vote_results %>% 
+  select(-coordinates, -region_name, -additional_info) %>% 
+  #filter(region_id == 77) %>% 
+  mutate(turnout_yes = yes/(voters),
+         turnout_no = no/(voters),
+         turnout_spoiled = spoiled/(voters)) %>% 
+  select(turnout_yes, yes) %>% 
+  mutate(bin=cut(turnout_yes, breaks = seq(0,1,0.05))) %>% 
+  group_by(bin) %>% 
+  summarise(sum=sum(yes)) %>% 
+  ggplot(aes(bin, sum)) +
+  geom_line(group = 1)
+  
+mutate(turnout_yes = round(turnout_yes, 2)) %>% 
+  group_by(turnout_yes) %>% 
+  summarise(foo = sum(yes)) %>% 
+  ggplot(aes(turnout_yes, foo)) +
+  geom_line()
+
+group_by(turnout_yes, turnout_no, turnout_spoiled) %>%
+  summarise(total_yes = sum(yes),
+            total_no = sum(no),
+            total_spoiled = sum(spoiled))
+  ungroup() %>% 
+  group_by(turnout_yes) %>% 
+  summarise(foo = sum(total_yes)) %>% 
+  ggplot(aes(turnout_yes, foo)) +
+  geom_line()
+  scale_x_continuous(breaks = seq(0,1, by =0.05))
+
+  
+```
+
+# Построение карты
+
+```{r}
+regions_map <- getData('GADM', country='RUS', level=1)
+set.seed(23)
+regions_map@data["data_to_plot"] <- sample(1:100, length(regions_map@data$NAME_1))
+geo_data_trsf <- spTransform(regions_map, CRS("+proj=longlat +lon_wrap=180"))
+max_data_val <- max(geo_data_trsf@data$data_to_plot)
+spplot(geo_data_trsf, zcol = "data_to_plot",
+   col.regions = colorRampPalette(brewer.pal(12, "Set3"))(max_data_val), 
+   col = "white")
+
+```
+
+
 
