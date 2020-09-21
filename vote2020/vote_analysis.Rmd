@@ -15,7 +15,7 @@ library(sp)
 library(RColorBrewer)
 ```
 
-# Get data
+# Получение данных с сайта Максима Каца
 
 Данные буду забирать с сайта Максима Каца. Понимаю, что это не самый достоверный источник.
 Но с сайта Каца данные получить проще всего
@@ -59,6 +59,15 @@ vote_results <- vote_results %>%
 ```{r}
 saveRDS(vote_results, "vote_results.RDS")
 #vote_results <- read_rds("vote_results.RDS")
+```
+
+
+
+# Получение данных из файла
+
+Источник  телеграмм канал https://t.me/RUElectionData
+```{r}
+
 ```
 
 
@@ -110,6 +119,23 @@ data_set %>%
   summarise(sum=sum(yes)) %>% 
   ggplot(aes(bin, sum)) +
   geom_col()
+```
+
+## Процент голосов в зависимости от явки
+
+```{r}
+vote_results %>% 
+  select(-coordinates, -region_name, -additional_info) %>% 
+  #filter(region_id == 77) %>% 
+  mutate(turnout_yes = yes/(voters),
+         turnout_no = no/(voters),
+         turnout_spoiled = spoiled/(voters)) %>% 
+  mutate(yes_range = cut(turnout_yes, 
+                   breaks = seq(0,1,0.01),
+                   labels = 0:99)) %>%
+  count(yes_range) %>% View()
+  ggplot(aes(yes_range, n)) +
+  geom_line(group = 1)
 ```
 
 
