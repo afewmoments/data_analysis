@@ -9,9 +9,18 @@ library(tidyverse)
 
 ```{r}
 plastic_waste <- read_csv("https://raw.githubusercontent.com/rstudio-education/datascience-box/master/course-materials/starters/labs/lab-02-plastic-waste/data/plastic-waste.csv")
-
-plastic_waste %>% glimpse()
 ```
+
+Очистим данные --- некоторые страны были сразу в двух континентах, для согласованности оставим им только один континент
+```{r}
+plastic_waste <- plastic_waste %>% 
+  group_by(entity) %>% 
+  add_count() %>%
+  mutate(n = ifelse(n == 1, n, ifelse(continent == "Asia", 1, n))) %>% 
+  filter(n == 1) %>% 
+  ungroup()
+```
+
 
 Описание переменных следующее:
 
@@ -84,5 +93,31 @@ plastic_waste %>%
   scale_x_log10() +
   geom_smooth() +
   facet_wrap(~continent)
+```
+
+# Попробуем разные модельки
+
+## Простая линейная модель
+
+Простая линейная модель --- зависимость мусора от ВВП страны
+```{r}
+sim1_mod <- lm(log(gdp_per_cap) ~ log(plastic_waste_per_cap), data = plastic_waste)
+summary(sim1_mod)
+
+ggplot(plastic_waste, aes(log(plastic_waste_per_cap), log(gdp_per_cap))) + 
+  geom_point(size = 2, colour = "grey30") + 
+  geom_abline(intercept = coef(sim1_mod)[1], slope = coef(sim1_mod)[2])
+```
+
+
+```{r}
+sim1_mod <- lm(y ~ x, data = sim1)
+coef(sim1_mod)
+```
+
+```{r}
+ggplot(sim1, aes(x, y)) + 
+  geom_point(size = 2, colour = "grey30") + 
+  geom_abline(intercept = coef(sim1_mod)[1], slope = coef(sim1_mod)[2])
 ```
 
