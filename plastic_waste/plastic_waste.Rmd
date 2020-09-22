@@ -13,6 +13,20 @@ plastic_waste <- read_csv("https://raw.githubusercontent.com/rstudio-education/d
 plastic_waste %>% glimpse()
 ```
 
+Описание переменных следующее:
+
+*  code: 3-значный код страны
+*  entity: Имя страны
+*  continent: Название континента
+*  year: Год
+*  gdp_per_cap: ВВП на душу населения в постоянных ценах 2011 г. в международных долларах, по курсу
+*  plastic_waste_per_cap: Количество пластиковых отходов на душу населения в кг / день.
+*  mismanaged_plastic_waste_per_cap: Количество неправильно обработанных пластиковых отходов на душу населения в кг / день.
+*  mismanaged_plastic_waste: Тонны неправильно обработанных пластиковых отходов
+*  coastal_pop: Количество людей, живущих на / вблизи побережья
+*  total_pop: Общая численность населения согласно Gapminder.
+*  
+
 Давайте начнем с того, что посмотрим на распределение пластиковых отходов на душу населения в 2010 году.
 
 ```{r}
@@ -38,10 +52,37 @@ plastic_waste %>%
   facet_wrap(~continent)
 ```
 
+Ящики
 ```{r}
 ggplot(data = plastic_waste, 
        mapping = aes(x = continent, 
                      y = plastic_waste_per_cap)) +
   geom_boxplot()
+```
+
+Как связаны ввп на душу населения и кол-во мусора
+```{r}
+plastic_waste %>%
+  ggplot(aes(gdp_per_cap, plastic_waste_per_cap)) +
+  geom_point() +
+  scale_y_log10() +
+  scale_x_log10() +
+  geom_smooth() +
+  facet_wrap(~continent)
+```
+
+Есть небольшой рост
+
+## Отходы на душу населения и неправильно обработанные пластиковые отходы
+Визуализируйте взаимосвязь между пластиковыми отходами на душу населения и неправильно обработанными пластиковыми отходами на душу населения с помощью диаграммы рассеяния. Опишите отношения.
+
+```{r}
+plastic_waste %>% 
+  ggplot(aes(plastic_waste_per_cap, mismanaged_plastic_waste_per_cap)) +
+  geom_point() +
+  scale_y_log10() +
+  scale_x_log10() +
+  geom_smooth() +
+  facet_wrap(~continent)
 ```
 
