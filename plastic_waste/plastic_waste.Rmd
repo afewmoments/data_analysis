@@ -1,0 +1,47 @@
+# Libraries
+
+```{r}
+library(tidyverse)
+```
+
+
+# Read data 
+
+```{r}
+plastic_waste <- read_csv("https://raw.githubusercontent.com/rstudio-education/datascience-box/master/course-materials/starters/labs/lab-02-plastic-waste/data/plastic-waste.csv")
+
+plastic_waste %>% glimpse()
+```
+
+Давайте начнем с того, что посмотрим на распределение пластиковых отходов на душу населения в 2010 году.
+
+```{r}
+plastic_waste %>% 
+  ggplot(aes(plastic_waste_per_cap)) +
+  geom_histogram(binwidth = 0.2)
+```
+
+Кто это больше всего мусорит
+
+```{r}
+plastic_waste %>% 
+  filter(plastic_waste_per_cap > 3.5) %>% 
+  pull(entity)
+```
+
+Посмотрим по континентам
+
+```{r}
+plastic_waste %>% 
+  ggplot(aes(plastic_waste_per_cap)) +
+  geom_histogram(binwidth = 0.2) +
+  facet_wrap(~continent)
+```
+
+```{r}
+ggplot(data = plastic_waste, 
+       mapping = aes(x = continent, 
+                     y = plastic_waste_per_cap)) +
+  geom_boxplot()
+```
+
