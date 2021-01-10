@@ -1,7 +1,7 @@
 ---
-title: "Transit Costs"
-runtime: shiny
+title: "Transit costs"
 output: html_document
+runtime: shiny
 ---
 
 ```{r setup, include=FALSE}
