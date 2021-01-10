@@ -2,8 +2,8 @@
 
 ```{r}
 library(tidyverse)
-library(httr)
 library(rvest)
+library(lubridate)
 ```
 
 # Get data
@@ -13,23 +13,95 @@ seasons_pages <- c()
 for (i in 1:9) {
   seasons_pages[i] <- paste0("https://www.imdb.com/title/tt0285403/episodes?season=", i, "&ref_=tt_eps_sn_", i)
 }
+```
+
+Скрипт сбора данных
+```{r}
+rating_full <- character()
+subtext_full <- character()
+director_full <- character()
+es_full <- character()
+next_page <- "title/tt0696640/?ref_=ttep_ep1"
+
+while (!is.na(next_page)) {
+  url <- paste0("https://www.imdb.com/", next_page)
+  from_url <- read_html(url)
+
+# Рейтинг
+rating <- from_url %>% 
+  html_nodes(".ratingValue strong") %>%
+  html_attr("title")
+rating_full <- append(rating_full, rating)
+
+# Subtext
+subtext <- from_url %>% 
+  html_nodes(".subtext") %>% 
+  html_text(trim = TRUE) %>% 
+  str_remove_all("\n") %>% 
+  str_remove_all(" ")
+subtext_full <- append(subtext_full, subtext)
+
+# Director
+director <- from_url %>% 
+  html_nodes(".credit_summary_item") %>%
+  html_text(trim = TRUE) %>% 
+  first() %>% 
+  str_remove_all("\n") %>% 
+  str_remove_all("Director:")
+director_full <- append(director_full, director)
+
+
+# Episod and Season
+es <- from_url %>% 
+  html_nodes(".bp_heading") %>% 
+  html_text(trim = TRUE) %>% 
+  first()
+es_full <- append(es_full, es)
+
+# Следующая страница
+next_page <- from_url %>% 
+  html_nodes(".np_next") %>% 
+  html_attr("href")
+
+Sys.sleep(0.2)
+}
 
 ```
 
-Нужно при помощи докера открывать эту дивянку.
+Получение таблицы с данными
+```{r}
+scrabs_df <- tibble(
+  rating = rating_full,
+  subtext = subtext_full,
+  director = director_full,
+  es = es_full)
+
+#scrabs_df %>% write_csv("data/scrabs_df.csv")
+```
 
 ```{r}
+cleaned_scrubs_df <- scrabs_df %>% 
+  mutate(
+         season = as.numeric(str_extract(es,"(?<=\\ )(.*?)(?=\\ )")),
+         episode = str_extract(es, "(?<=E).*"),
+         episode = str_extract(episode, "(?<=\\ ).*"),
+         runtime = as.numeric(str_extract(subtext, "(?<=\\|)(.*?)(?=m)")),
+         imdb_rate = as.numeric(str_extract(rating, "(.*?)(?=\\ )")),
+         users_count = str_extract(rating, "(?<=n)(.*?)(?=u)"),
+         users_count = str_remove_all(users_count, " "),
+         users_count = as.numeric(str_remove_all(users_count, ",")),
+         age_warning = as.numeric(str_extract(subtext, "(.*?)(?=\\+)")),
+         genre = str_extract(subtext, "(?<=n)(.*?)(?=E)"),
+         genre = str_remove_all(genre, "\\|"),
+         genre = str_replace(genre, "D", " D"),
+         date_aired = str_extract(subtext, "(?<=E).*"),
+         date_aired = str_remove(date_aired, "pisodeaired"),
+         date_aired = parse_date(date_aired, "%d%B%Y")
+         ) %>%
+  select(-rating, -es, -subtext)
 
-page_content <- read_html(seasons_pages[1])
-
-page_content %>% 
-  html_nodes(xpath = "/html/body/div")
-
+#cleaned_scrubs_df %>% write_csv("data/cleaned_scrubs_df.csv")
 
 ```
 
-
-```{r}
-season_number <- "/html/body/div[2]/div/div[2]/div[1]/div[1]/div[1]/div[2]/div[2]/div[2]/div[1]/div[1]/a/div/div"
-```
 
