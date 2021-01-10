@@ -1,0 +1,35 @@
+# Libraries
+
+```{r}
+library(tidyverse)
+library(httr)
+library(rvest)
+```
+
+# Get data
+
+```{r}
+seasons_pages <- c()
+for (i in 1:9) {
+  seasons_pages[i] <- paste0("https://www.imdb.com/title/tt0285403/episodes?season=", i, "&ref_=tt_eps_sn_", i)
+}
+
+```
+
+Нужно при помощи докера открывать эту дивянку.
+
+```{r}
+
+page_content <- read_html(seasons_pages[1])
+
+page_content %>% 
+  html_nodes(xpath = "/html/body/div")
+
+
+```
+
+
+```{r}
+season_number <- "/html/body/div[2]/div/div[2]/div[1]/div[1]/div[1]/div[2]/div[2]/div[2]/div[1]/div[1]/a/div/div"
+```
+
