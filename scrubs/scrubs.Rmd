@@ -8,13 +8,6 @@ library(lubridate)
 
 # Get data
 
-```{r}
-seasons_pages <- c()
-for (i in 1:9) {
-  seasons_pages[i] <- paste0("https://www.imdb.com/title/tt0285403/episodes?season=", i, "&ref_=tt_eps_sn_", i)
-}
-```
-
 Скрипт сбора данных
 ```{r}
 rating_full <- character()
@@ -101,7 +94,35 @@ cleaned_scrubs_df <- scrabs_df %>%
   select(-rating, -es, -subtext)
 
 #cleaned_scrubs_df %>% write_csv("data/cleaned_scrubs_df.csv")
-
+#cleaned_scrubs_df  <-  read_csv("data/cleaned_scrubs_df.csv")
 ```
 
+# Analisys
+
+```{r}
+cleaned_scrubs_df %>%
+  ggplot(aes(season, imdb_rate,  group = season)) +
+  geom_boxplot()
+```
+
+
+```{r}
+cleaned_scrubs_df %>% 
+  mutate(n_count = row_number()) %>% 
+  group_by(season) %>% 
+  mutate(mean_season_rate = mean(imdb_rate)) %>% 
+  group_by(season) %>% 
+  mutate(sd = sd(imdb_rate),
+         right = mean_season_rate + sd,
+         left = mean_season_rate - sd,
+         episode_high = ifelse(imdb_rate > right, episode, NA),
+         episode_low = ifelse(imdb_rate < left, episode, NA)) %>%
+  ggplot(aes(n_count, imdb_rate)) +
+  geom_line() +
+  geom_point() +
+  geom_text(aes(label = episode_high), position = position_nudge(y = 0.1)) +
+  geom_text(aes(label = episode_low), position = position_nudge(y = -0.1)) +
+  geom_line(aes(n_count, mean_season_rate), color = "red") +
+  facet_grid(~season, scales = "free_x")
+```
 
