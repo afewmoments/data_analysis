@@ -1,0 +1,209 @@
+# Libraries
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(doParallel)
+```
+
+
+# Задача
+
+Предсказать, был ли достигнут мировой рекорд Mario Kart с помощью кратчайшего пути или нет.
+
+# Получени и исследование данных
+
+```{r}
+records <- read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-05-25/records.csv")
+```
+
+Общая сводка данных
+```{r}
+records %>% glimpse
+
+records %>% 
+  count(system_played)
+```
+
+Как изменялось рекордное время:
+
+```{r}
+records %>%
+  ggplot(aes(date, time, color = track)) +
+  geom_point(alpha = 0.5, show.legend = FALSE) +
+  facet_grid(rows = vars(type), cols = vars(shortcut), scales = "free_y")
+```
+
+Рекордные времена сначала уменьшились, но затем стали более стабильными. Время записи разное для разных треков, а также для времени трех и одного круга.
+
+# Построение модели
+
+Разделим датасет на тренировочный и тестовый
+
+```{r}
+
+set.seed(123)
+mario_split <- records %>%
+  select(shortcut, track, type, date, time) %>%
+  mutate_if(is.character, factor) %>%
+  initial_split(strata = shortcut)
+
+mario_train <- training(mario_split)
+mario_test <- testing(mario_split)
+
+```
+
+создадим несколько различных тренировочных датасетов
+```{r}
+set.seed(234)
+mario_folds <- bootstraps(mario_train, strata = shortcut)
+mario_folds
+```
+
+Для прогноза будем использовать дерево решений
+
+```{r}
+tree_spec <- decision_tree(
+  cost_complexity = tune(),
+  tree_depth = tune()
+) %>%
+  set_engine("rpart") %>%
+  set_mode("classification")
+
+tree_grid <- grid_regular(cost_complexity(), tree_depth(), levels = 7)
+
+mario_wf <- workflow() %>%
+  add_model(tree_spec) %>%
+  add_formula(shortcut ~ .)
+
+mario_wf
+```
+
+Настроим параметры дерева, чтобы найти лучшее решение
+
+```{r}
+doParallel::registerDoParallel()
+
+tree_res <- tune_grid(
+  mario_wf,
+  resamples = mario_folds,
+  grid = tree_grid,
+  control = control_grid(save_pred = TRUE)
+)
+
+tree_res
+```
+
+Мы перепробовали все возможные комбинации древовидных параметров для каждого ресамплера.
+
+# Выбор и оценка финальной модели
+
+```{r}
+collect_metrics(tree_res)
+
+tree_res %>% 
+  select(.metrics)
+```
+
+
+```{r}
+
+show_best(tree_res, metric = "accuracy")
+show_best(tree_res, metric = "roc_auc")
+
+autoplot(tree_res)
+```
+
+Похоже что дерево с глубиной 8, самое удачное.
+
+Посмотрим, как выглядят ROC-кривые
+
+```{r}
+collect_predictions(tree_res) %>%
+  filter(tree_depth == 8) %>% 
+  group_by(id) %>%
+  roc_curve(shortcut, .pred_No) %>%
+  autoplot() +
+  theme(legend.position = "none")
+```
+
+Давайте выбирать параметры дерева , которые мы хотим использовать, завершить наш (перестраиваемый) рабочий процесс с этим выбором, а затем подходит последний раз в обучающих данных и оценить по данным тестирования.
+
+```{r}
+choose_tree <- select_best(tree_res, metric = "accuracy")
+
+final_res <- mario_wf %>%
+  finalize_workflow(choose_tree) %>%
+  last_fit(mario_split)
+
+collect_metrics(final_res)
+```
+
+Чтобы в будущем можно было использовать полученное дерево, сохраним наши результаты
+
+```{r}
+final_res$.workflow %>% write_rds("mario_model.RDS")
+```
+
+Как выглядит предсказание на полученной модели с использованием деревьев решений:
+
+```{r}
+final_fitted <- final_res$.workflow[[1]]
+
+predict(final_fitted, mario_test[10:12, ])
+```
+
+# Обработка результатов предсказаний
+
+Деревья решений уже достаточно объяснимы, но мы могли бы, например, захотеть увидеть график частичной зависимости для вероятности и времени сокращения.
+
+```{r}
+#install.packages("DALEXtra")
+library(DALEXtra)
+
+#Начнем с создания нашего «объяснителя».
+
+mario_explainer <- explain_tidymodels(
+  final_fitted,
+  data = dplyr::select(mario_train, -shortcut),
+  y = as.integer(mario_train$shortcut),
+  verbose = FALSE
+)
+
+```
+
+Затем давайте вычислим частичный профиль зависимости для времени, сгруппированный по type: три круга против одного круга.
+
+```{r}
+pdp_time <- model_profile(
+  mario_explainer,
+  variables = "time",
+  N = NULL,
+  groups = "type"
+)
+```
+
+Визуализируем полученные результаты
+
+```{r}
+plot(pdp_time)
+```
+
+Сделаем стандартный график более симпатичным
+
+```{r}
+as_tibble(pdp_time$agr_profiles) %>%
+  mutate(`_label_` = str_remove(`_label_`, "workflow_")) %>%
+  ggplot(aes(`_x_`, `_yhat_`, color = `_label_`)) +
+  geom_line(size = 1.2, alpha = 0.8) +
+  labs(
+    x = "Time to complete track",
+    y = "Predicted probability of shortcut",
+    color = NULL,
+    title = "Partial dependence plot for Mario Kart world records",
+    subtitle = "Predictions from a decision tree model"
+  )
+```
+
+Фигуры, которые мы здесь видим, отражают то, как модель дерева решений принимает решения по временной переменной.
+
