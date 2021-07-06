@@ -1,0 +1,129 @@
+# Libraries
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(snakecase)
+```
+
+# EDA
+
+```{r}
+weight <- read_delim("raw_data/weight.csv", 
+    ";", escape_double = FALSE, trim_ws = TRUE) %>% 
+  rename(MeasurementPoint = `Точка отбора`) 
+
+names(weight) <- snakecase::to_snake_case(colnames(weight))
+
+weight <- weight %>% 
+  mutate(measurement_date = as.POSIXct(measurement_date, format = "%d.%m.%Y %H:%M"),
+         event_date = as.POSIXct(event_date, format = "%d.%m.%Y %H:%M")) %>% 
+  filter(measurement_point == "Сигаретная машина") %>% 
+  select(-parameter_id,
+         -measurement_status_id,
+         -sample_type_id,
+         -data_collection_type,
+         -laboratory_id,
+         -case_number) %>% 
+  mutate(target = parse_number(str_replace(target, ",", ".")),
+         avg = parse_number(str_replace(avg, ",", ".")),
+         ucl = parse_number(str_replace(ucl, ",", ".")),
+         maximum_value = parse_number(str_replace(maximum_value, ",", ".")),
+         lcl = parse_number(str_replace(lcl, ",", ".")),
+         minimum_value = parse_number(str_replace(minimum_value, ",", ".")),
+         st_dev = parse_number(str_replace(st_dev, ",", "."))) %>% 
+  mutate(year = year(event_date),
+         month = month(event_date),
+         day = day(event_date)) %>% 
+      mutate(check_locale = ifelse(maximum_value <= ucl & minimum_value >= lcl, "good",
+                        ifelse(maximum_value > ucl & minimum_value >= lcl, "max",
+                               ifelse(minimum_value < lcl & maximum_value <= ucl, "min", 
+                                      "both")))) %>%
+  mutate(check_variance = ifelse((avg + st_dev) <= ucl & (avg - st_dev) >= lcl, "good",
+                        ifelse((avg + st_dev) > ucl & (avg - st_dev) >= lcl, "too high",
+                               ifelse((avg - st_dev) < lcl & (avg + st_dev) <= ucl, "too low", 
+                                      "wide spread")))) %>% 
+  mutate(check_avg = ifelse(avg > ucl | avg < lcl, "bad", "good"))
+```
+
+```{r}
+weight[8,] %>% 
+  select(machine_id, avg, st_dev, ucl, lcl) %>% 
+   ggplot() +
+   geom_pointrange(aes(machine_id, avg, ymin = avg - st_dev, ymax = avg + st_dev)) +
+  geom_hline(aes(yintercept = ucl), color = "red") +
+  geom_hline(aes(yintercept = lcl), color = "red")
+```
+
+
+```{r}
+foo <- weight %>% 
+  count(shift_id, machine_id, check_locale) %>% 
+  group_by(shift_id, machine_id) %>% 
+  mutate(rate = n/sum(n)) %>% 
+  ungroup() %>% 
+  ggplot(aes(machine_id, rate)) +
+  geom_col(aes(fill = check_locale)) +
+  facet_wrap(~shift_id)
+
+plotly::ggplotly(foo)
+```
+
+
+```{r}
+weight %>% 
+  count(shift_id, check_locale, check_variance) %>% View
+  filter(machine_id == "M06") %>% 
+  ggplot() +
+  geom_pointrange(aes(event_date, avg, 
+                      ymin = avg - st_dev, 
+                      ymax = avg + st_dev,
+                      color = shift_id)) +
+  geom_line(aes(event_date, ucl), color = "red") +
+  geom_line(aes(event_date, lcl), color = "red") +
+  geom_line(aes(event_date, avg), color = "blue") 
+
+
+```
+
+```{r}
+weight %>% 
+  filter(check_avg == "bad") %>% 
+  count(shift_id) %>% 
+  ggplot(aes(shift_id, n)) +
+  geom_col(fill = "darkgreen") +
+  geom_label(aes(label = n)) +
+  labs(
+    y = "count of cases",
+    title = "Count of cases when average is out of control area by shift"
+  )
+```
+
+```{r}
+machine_using <- weight %>% 
+  count(machine_id, name = "total_using")
+
+weight %>% 
+  filter(check_avg == "bad") %>% 
+  count(machine_id) %>% 
+  left_join(machine_using, by = "machine_id") %>% 
+  mutate(bad_avg_rate = n/total_using) %>% 
+  mutate(machine_id = fct_reorder(machine_id, bad_avg_rate)) %>% 
+  ggplot(aes(machine_id, bad_avg_rate)) +
+  geom_col() +
+  geom_text(aes(label = 100 * round(bad_avg_rate, 4)), hjust = -0.1) +
+  coord_flip() +
+  scale_y_continuous(labels = scales::percent)
+
+
+  count(shift_id) %>% 
+  ggplot(aes(shift_id, n)) +
+  geom_col(fill = "darkgreen") +
+  facet_wrap()
+```
+
+```{r}
+weight %>% write_csv("weight_with_check.csv")
+  filter(check_avg == "bad") %>% 
+  count(blend, sort = TRUE)
+```
