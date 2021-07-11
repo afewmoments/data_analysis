@@ -1,0 +1,272 @@
+# Libraries
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(vip) # for variable importance
+library(car) #  for VIF check
+library(psych) # for pairs.panels
+```
+
+
+# Reading and preparing
+```{r}
+
+raw_data <- read_csv("data/StudentsPerformance.csv") %>% 
+  mutate_if(is.character, as.factor)
+
+names(raw_data) <- snakecase::to_snake_case(names(raw_data))
+```
+
+# EDA
+
+Взгялнем, с какими данными мы имеем дело
+
+```{r}
+raw_data %>% glimpse()
+
+raw_data %>% summary()
+```
+
+Есть несколько номинативных переменных описывающих разные вещи, а так же оценка по трём предметам.
+
+Взглянем на то как между собой взаимосвязаны признаки
+```{r}
+pairs.panels(raw_data)
+```
+
+
+Здесь уже видно, что между скорами по предметам есть сильная линейная корреляция --- до 0.95 между чтением и письмом.
+
+Посмотрим, на распределение оценок по разным предметам
+
+В гендерном разрезе
+```{r}
+raw_data %>% 
+  pivot_longer(
+    cols = contains("score"),
+    names_to = "subject",
+    values_to = "score") %>%  
+  ggplot(aes(score, gender)) +
+  geom_boxplot() +
+  facet_grid(subject~.)
+```
+
+```{r}
+raw_data %>%
+  pivot_longer(
+    cols = contains("score"),
+    names_to = "subject",
+    values_to = "score") %>% 
+  ggplot(aes(score)) +
+  geom_histogram(aes(fill = gender)) +
+  facet_grid(subject~.) +
+  theme(legend.position = "bottom")
+```
+
+В зависимости от образования родителей
+
+```{r}
+raw_data %>% 
+  pivot_longer(
+    cols = contains("score"),
+    names_to = "subject",
+    values_to = "score") %>%
+  ggplot(aes(score, parental_level_of_education)) +
+  geom_boxplot(aes(color = gender))
+  facet_grid(subject~.)
+```
+
+
+
+# Modeling
+
+## Разделение данных
+
+Обучать модель буду на данных, без pivot-инга скора по разным предметам.
+Потому что может быть связь между баллами в разных дисциплинах.
+
+Разделим датасет на тестовый и тренировочный
+
+```{r}
+set.seed(420)
+# Put 3/4 of the data into the training set 
+data_split <- initial_split(raw_data, prop = 3/4)
+train_data <- training(data_split)
+test_data  <- testing(data_split)
+
+raw_data %>% 
+  select(math_score) %>% 
+  mutate(math_score = scale(math_score))
+
+train_data %>% summary()
+test_data %>% summary()
+```
+
+
+## Feature engineering
+
+Делаем дамми-переменные
+
+```{r}
+model_recipe <- recipe(math_score ~ ., data = train_data) %>% 
+                step_dummy(all_nominal(), - all_outcomes())
+```
+
+
+## Спецификация модели
+
+Задаём метод обучение --- линейная регрессия.
+
+Чтобы указать объект модели с помощью parsnip, мы должны:
+  Выбрать тип модели
+  Установить движок
+  Установить режим (регрессия или классификация)
+
+[Подробнее](https://www.tidymodels.org/find/parsnip/)
+
+```{r}
+lm_mod <- 
+  linear_reg() %>% 
+  set_engine("lm") %>% 
+  set_mode("regression")
+```
+
+## Создаём рабочий процесс
+
+```{r}
+model_workflow <- workflow() %>% 
+  add_model(lm_mod) %>% 
+  add_recipe(model_recipe)
+```
+
+## Обучение модели
+
+Теперь мы готовы обучить наш объект модели. 
+
+Я хочу предсказывать математические результаты, на основе всех имеющихся данных
+
+```{r}
+lm_fit_foo <- model_workflow %>% 
+  last_fit(split = data_split)
+
+# основные метрики
+lm_fit_foo$.metrics
+```
+
+
+```{r}
+lm_fit <- 
+  lm_mod %>% 
+  # fit(math_score ~ gender + race_ethnicity +
+  #       parental_level_of_education + lunch +
+  #       test_preparation_course + writing_score, data = train_data)
+  fit(math_score ~ ., data = train_data)
+  
+```
+
+Взглянем на коэффициент вздутия.
+
+```{r}
+vif(lm_fit$fit)
+```
+
+Как и ожидалось, из-за сильной скоррелированности скоров, vif довольно высокий для них.
+Вообще рекомендуется удалять из модели признаки, которые имеют vif больше 10, а то и больше 5.
+Но я пожалуй оставлю эти признаки, так как считаю, что в общем случае математика и чтение могут быть не высоко скоррелированы между собой.
+
+
+Основные коэффициенты и R-squared
+
+```{r}
+summary(lm_fit$fit)
+```
+
+
+Взглянем на диагностические графики
+
+```{r}
+par(mfrow=c(2,2)) # plot all 4 plots in one
+
+plot(lm_fit$fit, 
+     pch = 16,    # optional parameters to make points blue
+     col = '#006EA1')
+```
+
+QQ-плот показывает, что распределение остатков довольно симметричное
+
+
+```{r}
+# Data frame of estimated coefficients
+tidy(lm_fit)
+
+# Performance metrics on training data
+glance(lm_fit)
+```
+
+Построим график важности переменной для каждого предиктора в нашей модели. 
+Значение важности определяется на основе F-статистики и коэффициентов оценки в нашем обученном объекте модели.
+
+```{r}
+vip(lm_fit)
+```
+
+# Оценка точности
+
+Чтобы оценить точность, предскажем тестовые значения и сравним результаты
+
+```{r}
+data_predicted <- predict(lm_fit, new_data = test_data) %>% 
+                            bind_cols(test_data)
+
+```
+
+Посмотрим как коррелируют между собой предсказания и реальные значение
+
+```{r}
+cor(data_predicted$math_score, data_predicted$.pred)
+```
+
+Довольно высокая степень положительной корреляции, это хороший признак.
+Потому что предпологается сильная линейная зависимость между прогнозируемым значением и фактическим.
+
+## Рассчитаем RMSE и R^2 для тестовых данных
+
+[RMSE](http://statistica.ru/glossary/general/srednekvadraticheskaya-oshibka/) ---- это среднеквадратическа ошибка модели.
+
+Алгоритм проверки реализова в функции `rmse()`, которая принимает следующие аргументы
+
+  * data - фрейм данных со столбцами, которые имеют истинные значения и прогнозы
+  * truth - столбец с истинными значениями ответа
+  * estimate - столбец с прогнозируемыми значениями
+
+Результаты всегда возвращаются в виде фрейма данных со следующими столбцами: 
+  * .metric 
+  * .estimator
+  * .estimate
+
+
+```{r}
+rmse(data_predicted, 
+     truth = math_score,
+     estimate = .pred)
+```
+
+Всё тоже самое для `rsq()` 
+```{r}
+rsq(data_predicted, 
+     truth = math_score,
+     estimate = .pred)
+```
+
+Посмотрим на график R^2
+```{r}
+data_predicted %>% 
+  ggplot(aes(x = .pred, y = math_score)) +
+  geom_point(color = '#006EA1') +
+  geom_abline(intercept = 0, slope = 1, color = 'orange') +
+  labs(title = 'Linear Regression Results - Math Score Set',
+       x = 'Predicted value',
+       y = 'Actual value')
+```
+
+В целом довольно не плохой результат.
