@@ -73,7 +73,8 @@ franchises %>%
   ggplot(aes(franchise, revenue)) +
   geom_col() +
   coord_flip() +
-  labs(title = "Какие франшизы принесли больше всего денег, с момента их создания")
+  labs(title = "Какие франшизы принесли больше всего денег, с момента их создания") +
+  theme(legend.position = "bottom")
 ```
 
 ![](franshice_files/figure-gfm/unnamed-chunk-4-1.png)<!-- -->
@@ -92,7 +93,8 @@ media_franchises %>%
   labs(title = "Какие франшизы принесли больше всего денег, с момента их создания",
        fill = "Категория",
        x = "",
-       y = "Миллиарды долларов")
+       y = "Миллиарды долларов") +
+  theme(legend.position = "bottom")
 ```
 
 ![](franshice_files/figure-gfm/unnamed-chunk-5-1.png)<!-- -->
@@ -144,10 +146,13 @@ media_franchises %>%
 
 ``` r
 franchises %>% 
+  mutate(label = ifelse(total_revenue < 30, NA_character_, franchise)) %>% 
   ggplot(aes(year_created, total_revenue)) +
   geom_point(aes(size = total_revenue, color = original_media)) +
-  geom_text(aes(label = franchise), hjust = -0.1, vjust = -1) +
-  labs()
+  geom_text(aes(label = label), hjust = -0.1, vjust = -1) +
+  theme(legend.position = "bottom")
 ```
+
+    ## Warning: Removed 302 rows containing missing values (geom_text).
 
 ![](franshice_files/figure-gfm/unnamed-chunk-8-1.png)<!-- -->

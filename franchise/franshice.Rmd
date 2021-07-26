@@ -43,7 +43,7 @@ franchises <- media_franchises %>%
 ## Уровень франшиз
 
 Какие франшизы были самыми большими
-```{r}
+```{r, fig.width=9, fig.height=7}
 franchises %>% 
   arrange(desc(revenue)) %>% 
   head(16) %>% 
@@ -51,10 +51,11 @@ franchises %>%
   ggplot(aes(franchise, revenue)) +
   geom_col() +
   coord_flip() +
-  labs(title = "Какие франшизы принесли больше всего денег, с момента их создания")
+  labs(title = "Какие франшизы принесли больше всего денег, с момента их создания") +
+  theme(legend.position = "bottom")
 ```
 
-```{r}
+```{r, fig.width=9, fig.height=7}
 media_franchises %>% 
   semi_join(franchises %>% top_n(16, total_revenue), by = "franchise") %>% 
   mutate(franchise = glue("{ franchise } ({ year_created})")) %>% 
@@ -68,12 +69,13 @@ media_franchises %>%
   labs(title = "Какие франшизы принесли больше всего денег, с момента их создания",
        fill = "Категория",
        x = "",
-       y = "Миллиарды долларов")
+       y = "Миллиарды долларов") +
+  theme(legend.position = "bottom")
 ```
 
 Какие компании больше всего заработали на каких франшизах
 
-```{r}
+```{r, fig.width=9, fig.height=7}
 franchises %>% 
   group_by(owners) %>% 
   filter(n() > 1) %>% 
@@ -88,7 +90,7 @@ franchises %>%
   theme(legend.position = "bottom")
 ```
 
-```{r}
+```{r, fig.width=9, fig.height=7}
 media_franchises %>% 
   group_by(owners) %>% 
   filter(n_distinct(franchise) > 2) %>% 
@@ -111,12 +113,13 @@ media_franchises %>%
 ```
 
 Посмотрим в разрезе года основания
-```{r}
+```{r, fig.width=9, fig.height=7}
 franchises %>% 
+  mutate(label = ifelse(total_revenue < 30, NA_character_, franchise)) %>% 
   ggplot(aes(year_created, total_revenue)) +
   geom_point(aes(size = total_revenue, color = original_media)) +
-  geom_text(aes(label = franchise), hjust = -0.1, vjust = -1) +
-  labs()
+  geom_text(aes(label = label), hjust = -0.1, vjust = -1) +
+  theme(legend.position = "bottom")
 ```
 
 
