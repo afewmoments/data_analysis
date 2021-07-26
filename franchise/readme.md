@@ -99,21 +99,25 @@ media_franchises %>%
 
 ![](franshice_files/figure-gfm/unnamed-chunk-5-1.png)<!-- -->
 
-Какие компании больше всего заработали на каких франшизах
-
 ``` r
 franchises %>% 
   group_by(owners) %>% 
-  filter(n() > 1) %>% 
+  filter(revenue == max(revenue)) %>% 
   ungroup() %>% 
   mutate(franchise = glue("{ franchise } ({ year_created})")) %>% 
   mutate(franchise = fct_reorder(franchise, total_revenue),
-         owners = fct_reorder(owners, -total_revenue, sum)) %>% 
-  ggplot(aes(franchise, total_revenue, fill = original_media)) +
-  geom_col() +
-  facet_wrap(~owners, scales = "free_y") +
+         owners = fct_reorder(owners, total_revenue, sum)) %>% 
+  filter(revenue >= 20) %>% 
+  ggplot(aes(owners, revenue)) +
+  geom_col(aes(fill = franchise)) +
+  geom_text(aes(label = franchise)) +
   coord_flip() +
-  theme(legend.position = "bottom")
+  theme(legend.position = "none") +
+    labs(title = "Обладатели самых прибыльных франшиз",
+         subtitle = "c доходом больше 20 млрд.",
+       fill = "категория франшизы",
+       x = "",
+       y = "Миллиарды долларов")
 ```
 
 ![](franshice_files/figure-gfm/unnamed-chunk-6-1.png)<!-- -->

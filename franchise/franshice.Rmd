@@ -35,8 +35,7 @@ franchises <- media_franchises %>%
   group_by(revenue, franchise, original_media, year_created, creators, owners) %>% 
   summarise(categories = n(),
             total_revenue = sum(revenue),
-            most_profitable = revenue_category[which.max(revenue)]) %>% 
-  ungroup()
+            most_profitable = revenue_category[which.max(revenue)], .groups = "drop")
 ```
 
 
@@ -73,21 +72,25 @@ media_franchises %>%
   theme(legend.position = "bottom")
 ```
 
-Какие компании больше всего заработали на каких франшизах
-
 ```{r, fig.width=9, fig.height=7}
 franchises %>% 
   group_by(owners) %>% 
-  filter(n() > 1) %>% 
+  filter(revenue == max(revenue)) %>% 
   ungroup() %>% 
   mutate(franchise = glue("{ franchise } ({ year_created})")) %>% 
   mutate(franchise = fct_reorder(franchise, total_revenue),
-         owners = fct_reorder(owners, -total_revenue, sum)) %>% 
-  ggplot(aes(franchise, total_revenue, fill = original_media)) +
-  geom_col() +
-  facet_wrap(~owners, scales = "free_y") +
+         owners = fct_reorder(owners, total_revenue, sum)) %>% 
+  filter(revenue >= 20) %>% 
+  ggplot(aes(owners, revenue)) +
+  geom_col(aes(fill = franchise)) +
+  geom_text(aes(label = franchise)) +
   coord_flip() +
-  theme(legend.position = "bottom")
+  theme(legend.position = "none") +
+    labs(title = "Обладатели самых прибыльных франшиз",
+         subtitle = "c доходом больше 20 млрд.",
+       fill = "категория франшизы",
+       x = "",
+       y = "Миллиарды долларов")
 ```
 
 ```{r, fig.width=9, fig.height=7}
