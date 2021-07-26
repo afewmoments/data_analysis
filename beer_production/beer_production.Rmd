@@ -1,8 +1,8 @@
 ---
 title: "Производство пива"
-output: html_document
+output: github_document
 name: metrics_beer_prodaction
-owner: stas
+owner: Stas
 metrics:
   nb_pounds:
     title: "Число фунтов произведено"
@@ -25,22 +25,14 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(lubridate)
 theme_set(theme_light())
-#devtools::install_github("ramnathv/tidymetrics")
 library(tidymetrics)
-#devtools::install_github("ramnathv/shinymetrics")
 library(shinymetrics)
-#devtools::install_github("ramnathv/shinybones")
 library(shinybones)
-#install.packages("maptools")
-#install.packages("rgeos")
 library(maps)
 library(sf)
-#install.packages("ggthemes")
 library(ggthemes)
 library(viridis)
-#devtools::install_github("thomasp85/gganimate")
 library(gganimate)
-#install.packages("tidymodels")
 library(tidymodels)
 ```
 
@@ -55,18 +47,6 @@ beer_taxed <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience
 brewer_size <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-03-31/brewer_size.csv')
 beer_states <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-03-31/beer_states.csv')
 
-# Or read in with tidytuesdayR package (https://github.com/thebioengineer/tidytuesdayR)
-# PLEASE NOTE TO USE 2020 DATA YOU NEED TO USE tidytuesdayR version ? from GitHub
-
-# Either ISO-8601 date or year/week works!
-
-# Install via devtools::install_github("thebioengineer/tidytuesdayR")
-
-# tuesdata <- tidytuesdayR::tt_load('2020-03-31')
-# tuesdata <- tidytuesdayR::tt_load(2020, week = 14)
-
-
-# brewing_materials <- tuesdata$brewing_materials
 ```
 
 
@@ -305,8 +285,6 @@ beer_states %>%
   scale_fill_viridis() +
   theme(legend.position = "bottom")
 ```
-
-todo --- поработать с пакетом gganimate
 
 
 # Элементы ML
