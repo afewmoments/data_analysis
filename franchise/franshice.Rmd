@@ -1,6 +1,6 @@
 ---
 title: "franchise"
-output: html_document
+output: github_document
 ---
 
 ```{r setup, include=FALSE}
@@ -9,12 +9,14 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # Libraries
 
-```{r}
+```{r, include=FALSE}
 library(tidyverse)
 library(lubridate)
 theme_set(theme_light())
 library(glue)
 ```
+
+[Ссылка на описание данных](https://github.com/rfordatascience/tidytuesday/tree/master/data/2019/2019-07-02)
 
 # Получение данных
 
@@ -30,13 +32,11 @@ media_franchises %>%
   count(franchise, sort = TRUE)
 
 franchises <- media_franchises %>% 
-  group_by(franchise, original_media, year_created, creators, owners) %>% 
+  group_by(revenue, franchise, original_media, year_created, creators, owners) %>% 
   summarise(categories = n(),
             total_revenue = sum(revenue),
             most_profitable = revenue_category[which.max(revenue)]) %>% 
   ungroup()
-
-
 ```
 
 
@@ -110,7 +110,7 @@ media_franchises %>%
        y = "Миллиарды долларов")
 ```
 
-ПОсмотрим в разрезе года основания
+Посмотрим в разрезе года основания
 ```{r}
 franchises %>% 
   ggplot(aes(year_created, total_revenue)) +
