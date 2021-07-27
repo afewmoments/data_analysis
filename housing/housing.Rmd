@@ -1,0 +1,737 @@
+---
+title: "Housing"
+author: "Stas Masiuta"
+date: '`r Sys.Date()`'
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE,
+                      message = FALSE, dpi = 180, 
+                      fig.width = 8, fig.height = 5)
+```
+
+# Libraries
+
+```{r libraries}
+library(tidyverse)
+library(stringr)
+library(GGally)
+library(tidymodels)
+library(skimr)      # сводка по данным
+library(ggmap)      # отрисовка карт
+library(vip)        # визуализация важности предикторов
+```
+
+# Task
+
+Будем анализировать данные о ценах на жильё в Калифорнии.
+
+Задача --- Построить модель, которая будет предсказывать цену на жилье.
+
+Для упрощения, цену на жильё выразим номинативной переменной с двумя градациями --- больше 150000 долларов и ниже этой суммы.
+
+
+
+# Explore data
+
+## Import
+
+```{r}
+housing_df <- read_csv("https://raw.githubusercontent.com/kirenz/datasets/master/housing_unclean.csv")
+```
+
+## Clean
+
+```{r}
+housing_df %>% glimpse()
+```
+
+Мы видим, что некоторые параметры «замусорены»
+
+  * в годах есть слово years
+  * в стоимости есть символ доллара
+  * плюс оба эти параметра символьные, хотя по идее представляют численные значения.
+
+Очистим символы и конвертируем в численное представление
+
+```{r}
+housing_df <- 
+  housing_df %>% 
+  mutate(
+    housing_median_age = str_remove_all(housing_median_age, "[years]"),
+    housing_median_age = as.numeric(housing_median_age),
+    median_house_value = str_remove_all(median_house_value, "[$]"),
+    median_house_value = as.numeric(median_house_value),
+    ocean_proximity = factor(ocean_proximity)
+  )
+```
+
+```{r}
+housing_df %>% glimpse()
+```
+
+```{r}
+housing_df %>% 
+  count(ocean_proximity, sort = TRUE)
+```
+
+Теперь посмотрим в целом на данные.
+
+```{r}
+housing_df %>% skim()
+```
+
+  * Есть пропущенные данные в переменной `total_bedrooms`
+  * Довольно большой разброс у численных переменных не связанных с координатами
+  * У численных переменных распределение с длинным правым хвостом
+  * Данные нужно нормализовать
+  
+  
+## Работа с пропущенными данными
+
+Пропущенные данные можно как исключить из выборки, так и заменить их на среднее значение, напрмиер по страте.
+
+Посмотрим, какой процент составляют пропущенные значения в каждой из групп
+
+```{r}
+housing_df %>% 
+  count(ocean_proximity, name = "whole_data") %>% 
+  left_join(housing_df %>% 
+              filter(is.na(total_bedrooms)) %>% 
+              count(ocean_proximity, name = "na_count")) %>% 
+  mutate(na_rate = na_count/whole_data)
+```
+
+около одного процента по каждой из групп.
+Думаю, что можно просто удалить эти пропуски. Сделаем это в дальнейшем, при составлении рецепта
+
+
+## Новые переменные
+
+Заметим, что могут быть интересны следующие параметры
+
+  * комнат на одно домохозяйство
+  * спален на квартиру
+  * жителей в одном домохозяйстве
+  
+```{r}
+housing_df <- 
+  housing_df %>% 
+  mutate(rooms_per_household = total_rooms/households,
+        bedrooms_per_room = total_bedrooms/total_rooms,
+        population_per_household = population/households)
+```
+
+Кроме того, создадим переменную, которую будем предсказывать
+
+```{r}
+housing_df <- 
+  housing_df %>% 
+  mutate(price_category = case_when( 
+    median_house_value < 150000 ~ "below",
+    median_house_value >= 150000 ~ "above",
+    )) %>% 
+  mutate(price_category = as.factor(price_category)) %>% 
+  select(-median_house_value)
+```
+
+Так как мы создали переменную на основе цены, чтобы эта цена не попала в предикторы, уберём её из датасета
+
+```{r}
+housing_df %>% 
+  count(price_category, 
+        name ="districts_total")
+```
+
+## EDA
+
+```{r}
+housing_df %>% 
+  select(
+    housing_median_age, 
+    median_income, bedrooms_per_room, rooms_per_household, 
+    population_per_household, ocean_proximity,
+    price_category) %>% 
+  ggpairs()
+```
+
+В основном, мы уже выше отметили, что численные значения имеют длинный правый хвост.
+
+### География
+
+Диаграмма рассеяния долготы и широты, на которой выделяются области с высокой плотностью квартир
+
+```{r}
+housing_df %>% 
+  ggplot(aes(x = longitude, y = latitude)) +
+  geom_point(color = "blue", alpha = 0.1)
+```
+
+На графике ниже видно, что дома западнее дешевле, а восточнее дороже
+
+```{r}
+housing_df %>% 
+  ggplot(aes(x = longitude, y = latitude)) +
+  geom_point(aes(size = population, color = price_category), 
+             alpha = 0.4)
+```
+
+Посмотрим почему так, на реальной карте
+
+```{r}
+
+qmplot(x = longitude, 
+       y = latitude, 
+       data = housing_df, 
+       geom = "point", 
+       color = price_category, 
+       size = population,
+       alpha = 0.4) +
+  scale_alpha(guide = 'none')
+```
+
+Стало понятнее --- жильё ближе к океану дешевле, чем ближе к горам.
+Это может объясняться разными причинами --- вид (океан или горы), опасность наводнений, сложность логистики и т.п. В наших данных такой информации нет, но координаты являются важной предсказательной особенностью. Которую мы вероятно оставим в данных, для последующего анализа.
+
+### Числовые переменные
+
+Посмотрим как распределяется цена в зависимости от категории
+
+```{r}
+housing_df %>% 
+  ggplot(aes(x = price_category, y = median_income, 
+             fill = price_category, color = price_category)) +
+  geom_boxplot(alpha=0.4) 
+```
+
+Оптимизируем построение графиков. Построим сразу ящики с усами для всех численных переменных.
+
+Для этого напишем функцию, которая будет принимать названия переменных и подставлять их в график `ggplot`
+
+```{r}
+print_boxplot <- function(.y_var){
+  
+  # convert strings to variable
+  y_var <- sym(.y_var) 
+ 
+  # unquote variables using {{}}
+  housing_df %>% 
+  ggplot(aes(x = price_category, y = {{y_var}},
+             fill = price_category, color = price_category)) +
+  geom_boxplot(alpha=0.4) 
+  
+}
+```
+
+Получаем имена всех переменных
+
+```{r}
+y_var <- 
+  housing_df %>% 
+  select(where(is.numeric), -longitude, - latitude) %>% 
+  variable.names()
+```
+
+Итеративно передаём все переменные в нашу новую функцию.
+
+```{r}
+map(y_var, print_boxplot)
+```
+
+По полученным графикам можно сказать следующее:
+
+  * Различия между двумя группами довольно малы для `housing_median_age`, `total_room`, `total_bedrooms`, `population` и `households`
+  * Мы можем наблюдать заметную разницу для наших переменных `median_income` и `bedrooms_per_room`
+  * `population_per_household` и `rooms_per_household` включают некоторые выбросы.
+  
+Отфильтруем выбросы, для этого мы просто установим порог, после которого явные выбросы будут исключены из выборки.
+
+Сделаем это при помощи следующей функции:
+
+```{r}
+print_boxplot_out <- function(.y_var_out){
+  
+  y_var <- sym(.y_var_out) 
+ 
+  housing_df %>% 
+  filter(rooms_per_household < 50, population_per_household < 20) %>% 
+  ggplot(aes(x = price_category, y = {{y_var}},
+             fill = price_category, color = price_category)) +
+  geom_boxplot(alpha=0.4) 
+  
+} 
+
+y_var_out <- 
+  housing_df %>% 
+  select(rooms_per_household, population_per_household) %>% 
+  variable.names() 
+
+map(y_var_out, print_boxplot_out)
+```
+
+Теперь мы можем заметить небольшую разницу для `population_per_household`. Тогда как распределение `rooms_per_householdс` напротив, очень похоже для обеих групп.
+
+#### Логарифмическое преобразование
+
+Мы помним, что почти у всех количественных переменных идёт скос вправо. Для того чтобы нивелировать этот эффект можно применить степенное преобразование
+
+```{r}
+housing_df %>% 
+  ggplot(aes(x = price_category, y = rooms_per_household,
+             fill = price_category, color = price_category)) +
+  geom_boxplot(alpha=0.4) +
+  scale_y_log10()
+```
+
+Данное преобразование несколько уменьшает хвост, но конечно не делает его идеально нормальным. Однако даже такой эффект будет ощутим
+
+```{r}
+housing_df %>% 
+  ggplot(aes(x = rooms_per_household)) +
+  geom_histogram() +
+  scale_y_log10()
+```
+
+
+### Категориальные данные
+
+
+## Build model
+
+### Разделение данных
+
+Отберём только те переменные, которые показались нам оптимальными для предсказания
+
+```{r}
+housing_df_new <-
+  housing_df %>% 
+  select(
+    longitude, latitude, 
+    price_category, 
+    median_income, 
+    ocean_proximity, 
+    bedrooms_per_room, 
+    rooms_per_household, 
+    population_per_household)
+```
+
+
+Перед тем как мы поделим данные на тренировочный и тестовый датасеты, посмотрим на то, как распределены два предсказываемых класса.
+
+```{r}
+housing_df_new %>% 
+  ggplot(aes(price_category)) +
+  geom_bar() 
+```
+
+Значений `below` несколько меньше `above`. Чтобы предсказываемая оценка не получилась смещённой, при разделении используем параметр strata.
+
+```{r}
+set.seed(123)
+
+data_split <- initial_split(housing_df_new, 
+                           prop = 3/4, 
+                           strata = price_category)
+
+train_data <- training(data_split) 
+test_data <- testing(data_split)
+```
+
+### Создание рецепта
+
+```{r}
+housing_rec <-
+  recipe(price_category ~ .,
+         data = train_data) %>%
+  update_role(longitude, latitude, 
+              new_role = "ID") %>% 
+  step_log(
+    median_income,
+    bedrooms_per_room, 
+    rooms_per_household, 
+    population_per_household
+    ) %>% 
+  step_naomit(everything(), skip = TRUE) %>% 
+  step_novel(all_nominal(), -all_outcomes()) %>%
+  step_normalize(all_numeric(), -all_outcomes(), 
+                 -longitude, -latitude) %>% 
+  step_dummy(all_nominal(), -all_outcomes()) %>%
+  step_zv(all_numeric(), -all_outcomes()) %>%
+  step_corr(all_predictors(), threshold = 0.7, method = "spearman") 
+```
+
+Что мы тут сделали
+  * `update_role()` --- мы хотим оставить координаты, но не включаем их предикторами в модель
+  * `step_log()` --- применяем степенное преобразование переменных, чтобы нивелировать правый скос распределений
+  * `step_naomit()` --- исключаем пропущенные данные
+  * `step_novel()` --- преобразует все номинальные переменные в факторы
+  * `step_normalize()` --- делаем z-преобразование, нормализуем численные переменные
+  * `step_dummy()` --- делает из факторных переменных дамми-переменные
+  * `step_zv()` --- исключаем все переменные с нулевой дисперсией.
+  * `step_corr()` --- исключаем все переменные которые сильно коррелируют между собой
+
+```{r}
+summary(housing_rec)
+```
+
+Таким образом, у нас получилось 5 предикторов:
+  * median_income
+  * ocean_proximity
+  * bedrooms_per_room
+  * rooms_per_household
+  * population_per_household
+  
+```{r}
+housing_rec %>%
+  prep() %>%
+  juice() %>% 
+  glimpse()
+```
+
+### Валидационный набор
+
+Соберём валидационный набор
+
+```{r}
+set.seed(100)
+
+cv_folds <-
+ vfold_cv(train_data, 
+          v = 5, 
+          strata = price_category)
+```
+
+
+### Логистическая регрессия
+
+```{r}
+log_spec <- 
+  logistic_reg() %>% 
+  set_engine(engine = "glm") %>%
+  set_mode("classification")
+```
+
+
+### Случайный лес
+
+```{r}
+rf_spec <- 
+  rand_forest() %>% 
+  set_engine("ranger", importance = "impurity") %>% 
+  set_mode("classification")
+```
+
+### XGBoost
+
+```{r}
+xgb_spec <- 
+  boost_tree() %>% 
+  set_engine("xgboost") %>% 
+  set_mode("classification") 
+```
+
+
+### Случайный сосед
+
+```{r}
+knn_spec <- 
+  nearest_neighbor(neighbors = 4) %>%
+  set_engine("kknn") %>% 
+  set_mode("classification") 
+```
+
+### Нейронная сеть
+
+```{r}
+nnet_spec <-
+  mlp() %>%
+  set_mode("classification") %>% 
+  set_engine("keras") 
+```
+
+## Рабочий процесс
+
+### Для lgm
+
+```{r}
+log_wflow <-
+ workflow() %>%
+ add_recipe(housing_rec) %>% 
+ add_model(log_spec)
+```
+
+### Для random forest
+
+```{r}
+rf_wflow <-
+ workflow() %>%
+ add_recipe(housing_rec) %>% 
+ add_model(rf_spec) 
+```
+
+
+### Для XGBoost
+
+```{r}
+xgb_wflow <-
+ workflow() %>%
+ add_recipe(housing_rec) %>% 
+ add_model(xgb_spec)
+```
+
+
+### Для kknn
+
+```{r}
+knn_wflow <-
+ workflow() %>%
+ add_recipe(housing_rec) %>% 
+ add_model(knn_spec)
+```
+
+### Для нейронки
+
+```{r}
+nnet_wflow <-
+ workflow() %>%
+ add_recipe(housing_rec) %>% 
+ add_model(nnet_spec)
+```
+
+## Оценка моделей
+
+### glm
+
+Нафитим модель с использованием алгоритма glm
+```{r}
+get_model <- function(x) {
+  pull_workflow_fit(x) %>% tidy()
+}
+
+# same as before with one exception
+log_res <- 
+  log_wflow %>% 
+  fit_resamples(
+    resamples = cv_folds, 
+    metrics = metric_set(
+      recall, precision, f_meas, 
+      accuracy, kap,
+      roc_auc, sens, spec),
+    control = control_resamples(
+      save_pred = TRUE,
+      extract = get_model) # use extract and our new function
+    ) 
+```
+
+```{r}
+log_res %>% 
+  collect_metrics()
+
+log_res %>%
+  collect_predictions() %>% 
+  conf_mat(price_category, .pred_class)
+```
+
+#### ROC-кривая
+
+
+```{r}
+log_res %>%
+  collect_predictions() %>% 
+  group_by(id) %>% # id contains our folds
+  roc_curve(price_category, .pred_above) %>% 
+  autoplot()
+```
+
+#### РАспределение вероятностей
+
+```{r}
+log_res %>%
+  collect_predictions() %>% 
+  ggplot() +
+  geom_density(aes(x = .pred_above, 
+                   fill = price_category), 
+               alpha = 0.5)
+```
+
+### random forest
+
+```{r}
+rf_res <-
+  rf_wflow %>% 
+  fit_resamples(
+    resamples = cv_folds, 
+    metrics = metric_set(
+      recall, precision, f_meas, 
+      accuracy, kap,
+      roc_auc, sens, spec),
+    control = control_resamples(save_pred = TRUE)
+    ) 
+
+rf_res %>%  collect_metrics()
+```
+
+```{r}
+rf_res %>%
+  collect_predictions() %>% 
+  ggplot() +
+  geom_density(aes(x = .pred_above, 
+                   fill = price_category), 
+               alpha = 0.5)
+```
+
+
+### xgboost
+
+```{r}
+xgb_res <- 
+  xgb_wflow %>% 
+  fit_resamples(
+    resamples = cv_folds, 
+    metrics = metric_set(
+      recall, precision, f_meas, 
+      accuracy, kap,
+      roc_auc, sens, spec),
+    control = control_resamples(save_pred = TRUE)
+    ) 
+
+xgb_res %>% collect_metrics()
+```
+
+### knn
+
+```{r}
+knn_res <- 
+  knn_wflow %>% 
+  fit_resamples(
+    resamples = cv_folds, 
+    metrics = metric_set(
+      recall, precision, f_meas, 
+      accuracy, kap,
+      roc_auc, sens, spec),
+    control = control_resamples(save_pred = TRUE)
+    ) 
+
+knn_res %>% collect_metrics()
+```
+
+
+### NN
+
+```{r}
+nnet_res <- 
+  nnet_wflow %>% 
+  fit_resamples(
+    resamples = cv_folds, 
+    metrics = metric_set(
+      recall, precision, f_meas, 
+      accuracy, kap,
+      roc_auc, sens, spec),
+    control = control_resamples(save_pred = TRUE)
+    )
+
+nnet_res %>% collect_metrics()
+```
+
+## Сравнение моделей
+
+```{r}
+log_metrics <- 
+  log_res %>% 
+  collect_metrics(summarise = TRUE) %>%
+  mutate(model = "Logistic Regression") # add the name of the model to every row
+
+rf_metrics <- 
+  rf_res %>% 
+  collect_metrics(summarise = TRUE) %>%
+  mutate(model = "Random Forest")
+
+xgb_metrics <- 
+  xgb_res %>% 
+  collect_metrics(summarise = TRUE) %>%
+  mutate(model = "XGBoost")
+
+knn_metrics <- 
+  knn_res %>% 
+  collect_metrics(summarise = TRUE) %>%
+  mutate(model = "Knn")
+
+nnet_metrics <-
+  nnet_res %>%
+  collect_metrics(summarise = TRUE) %>%
+  mutate(model = "Neural Net")
+```
+
+```{r}
+model_compare <- bind_rows(
+                          log_metrics,
+                           rf_metrics,
+                           xgb_metrics,
+                           knn_metrics,
+                           nnet_metrics
+                           ) 
+
+model_comp <- 
+  model_compare %>% 
+  select(model, .metric, mean, std_err) %>% 
+  pivot_wider(names_from = .metric, values_from = c(mean, std_err)) 
+```
+
+Выведем график все посчитанные метрики
+
+```{r}
+model_compare %>%
+  mutate(low = mean - 1.96 * std_err * sqrt(n),
+         high = mean + 1.96 * std_err * sqrt(n)) %>% 
+  group_by(.metric) %>% 
+  mutate(fill_id = ifelse(mean == max(mean), "max", "none")) %>%
+  ggplot(aes(mean, model)) +
+  geom_col(aes(fill = fill_id)) +
+  geom_errorbar(aes(xmin = low, xmax = high)) +
+  geom_label(aes(x = mean - 0.25, y = model, label = round(mean, 3))) + 
+  facet_wrap(~.metric)
+
+
+```
+
+По многим параметрам оказалось, что с задачей Random Forest справился лучше
+
+## Последняя оценка тестового набора
+
+```{r}
+last_fit_rf <- last_fit(rf_wflow, 
+                        split = data_split,
+                        metrics = metric_set(
+                          recall, precision, f_meas, 
+                          accuracy, kap,
+                          roc_auc, sens, spec)
+                        )
+```
+
+Получим финальные оценки нашей модели.
+
+```{r}
+last_fit_rf %>% 
+  collect_metrics()
+```
+
+Оценим важность каждого из параметров обучения.
+
+```{r}
+last_fit_rf %>% 
+  pluck(".workflow", 1) %>%   
+  pull_workflow_fit() %>% 
+  vip(num_features = 10)
+```
+
+Двумя наиболее важными предикторами того, выше средняя стоимость дома или ниже 150000 долларов, были близость океана к материку и средний доход.
+
+Построим ROC кривую
+
+```{r}
+last_fit_rf %>% 
+  collect_predictions() %>% 
+  roc_curve(price_category, .pred_above) %>% 
+  autoplot()
+```
