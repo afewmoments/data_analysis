@@ -1,0 +1,536 @@
+---
+title: "Hotel Bookings"
+author: "Stas Masiuta"
+date: '`r Sys.Date()`'
+output: github_document
+---
+
+# Libraries
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(skimr)      # вместо glimpse()
+library(GGally)     # парные графики
+library(textrecipes)
+library(scales)
+library(stacks)
+library(ggthemes)   # для карт 
+library(ggmap)
+library(tidytext)
+
+doParallel::registerDoParallel(cores = 4)
+```
+
+# Task
+
+Необходимо предсказывать цену на жилье исходя из имеющихся параметров
+
+# Explore data
+
+##  Import data
+
+В соревновании есть тренировочный и тестовый наборы. Свой тренировочный набор мы в свою очередь разобьём ещё раз на тренировочный и тестовый. 
+Чтобы не путаться в названиях, дадим их не совсем обычными
+
+```{r}
+# тренировочный набор из задания
+dataset <- read_csv("data/train.csv")
+
+# тестовый набор из задания
+holdout <- read_csv("data/test.csv")
+```
+
+Мы собираемся предсказывать цену, поэтому давайте изучим как она распределена в принципе:
+
+```{r}
+dataset %>% 
+  ggplot(aes(price)) +
+  geom_histogram()
+```
+
+Цена сильно смещена влево. В таких случаях помогает логарифмирование
+
+```{r}
+dataset %>% 
+  ggplot(aes(price)) +
+  geom_histogram() +
+  scale_x_log10()
+```
+
+Центр распределения немного смещён, ориентировочно где-то на единицу.
+
+```{r}
+dataset %>% 
+  mutate(price = log(price + 1)) %>% 
+  ggplot(aes(price)) +
+  geom_histogram()
+```
+
+Выглядит лучше, переопределим исходную цену в смещённый логарифм
+
+```{r}
+dataset <- dataset %>% 
+  mutate(price = log(price + 1))
+```
+
+## Sampling test\train
+
+```{r}
+set.seed(47)
+spl <- initial_split(dataset, .75)
+train <- training(spl)
+test <- testing(spl)
+```
+
+## EDA
+
+Так как мы ввели логарифмирование со смещением, то давайте введём функцию для упрощения подсчёта средних величин
+
+```{r}
+summarize_prices <- function(tbl) {
+  tbl %>%
+    summarize(avg_price = exp(mean(price)) - 1,
+              median_price = exp(median(price)) - 1,
+              n = n()) %>%
+    arrange(desc(n))
+}
+```
+
+Общий разрез средних
+
+```{r}
+train %>% 
+  summarize_prices()
+```
+
+### Группа neighbourhood_group
+
+```{r}
+train %>% 
+  group_by(neighbourhood_group) %>% 
+  summarize_prices() %>% 
+  mutate(neighbourhood_group = fct_reorder(neighbourhood_group, median_price)) %>% 
+  ggplot(aes(median_price, neighbourhood_group)) +
+  geom_col() +
+  geom_label(aes(label = median_price))
+```
+
+Самый дорогой район это Манхэттен, в Бронксе цены больше чем в два раза дешевле.
+Давайте посмотрим на меры положения
+
+```{r}
+train %>% 
+  mutate(neighbourhood_group = fct_reorder(neighbourhood_group, price)) %>% 
+  ggplot(aes(exp(price), neighbourhood_group)) +
+  geom_boxplot() +
+  scale_x_log10()
+```
+
+На Манхэттене цены всё равно выше, но уже видно сильное влияение правых выбросов --- часто встречаются более дорогие экземпляры.
+
+### Группа neighbourhood
+
+```{r}
+train %>% 
+  mutate(
+    neighbourhood = fct_lump(neighbourhood, 30),
+    neighbourhood = fct_reorder(neighbourhood, price)) %>% 
+  ggplot(aes(exp(price), neighbourhood)) +
+  geom_boxplot() +
+  scale_x_log10()
+```
+
+
+### группа minimum nights
+
+```{r}
+train %>% 
+  mutate(
+    minimum_nights = pmin(minimum_nights, 15)) %>% 
+  ggplot(aes(minimum_nights, price, group = minimum_nights)) +
+  geom_boxplot()
+```
+
+```{r}
+train %>% 
+  sample_n(1000) %>% 
+  ggplot(aes(minimum_nights + 1, price)) +
+  geom_point() +
+  geom_smooth(method = "loess") +
+  scale_x_log10()
+```
+
+### отзывы
+
+как распределено количество оставленных отзывов
+
+```{r}
+train %>% 
+  ggplot(aes(number_of_reviews, price)) +
+  geom_point() +
+  scale_x_log10()
+```
+
+```{r}
+train %>% 
+  ggplot(aes(reviews_per_month, price)) +
+  geom_point() +
+  scale_x_log10() +
+  geom_smooth(method = "lm")
+```
+
+
+### calculated_host_listings_count
+
+```{r}
+train %>% 
+  ggplot(aes(calculated_host_listings_count, price)) +
+  geom_point() +
+  scale_x_log10() +
+  geom_smooth(method = "lm")
+```
+
+### availability_365
+
+```{r}
+train %>% 
+  ggplot(aes(availability_365, price)) +
+  geom_point() +
+  scale_x_log10() +
+  geom_smooth(method = "lm")
+```
+
+### текстовый анализ
+
+Самые популярные слова в названии хоста и их средняя цена
+
+```{r}
+train %>%
+  unnest_tokens(word, name) %>%
+  group_by(word) %>%
+  summarize_prices() %>%
+  head(50) %>%
+  mutate(word = fct_reorder(word, avg_price)) %>%
+  ggplot(aes(avg_price, word, size = n)) +
+  geom_point()
+```
+
+Самое дорогое слово --- luxury, кто бы мог подумать)
+
+Теперь посмотрим, как цены связаны с владельцами
+
+```{r}
+train %>%
+  mutate(host_id = factor(host_id)) %>%
+  mutate(host_id = fct_lump(host_id, 40)) %>%
+  mutate(host_id = fct_reorder(host_id, price)) %>%
+  ggplot(aes(price, host_id)) +
+  geom_boxplot()
+```
+
+
+### Координаты
+
+Давайте построим «карту» по точкам. Для начала просто раскрасим районы:
+
+```{r}
+train %>% 
+  ggplot(aes(longitude, latitude, color = neighbourhood_group)) +
+  geom_point()
+```
+
+Как распределена цена, в зависимости от координат
+
+```{r}
+train %>% 
+  ggplot(aes(longitude, latitude, color =  price)) +
+  geom_point(size = .1)
+```
+
+Не сильно показательно, давайте скруппируем по координатам
+
+```{r}
+train %>% 
+  group_by(longitude = round(longitude, 2),
+         latitude = round(latitude, 2)) %>% 
+  summarise(price = mean(price)) %>% 
+  ggplot(aes(longitude, latitude, color =  exp(price) - 1)) +
+  geom_point() +
+  # все значения градиента подгонялись:
+  scale_color_gradient2(low = "green",
+                        high = "red",
+                        mid = "blue",
+                        trans = "log10",
+                        midpoint = 2.5) +
+  theme_map()
+```
+
+Теперь наложим точки на реальную карту.
+Для этого нам нужно получить «квадрат» который мы будем вытаскивать из гугло карт
+
+```{r}
+train %>% 
+  with(range(latitude))
+
+train %>% 
+  with(range(longitude))
+```
+
+Соответственно эти координаты и задаем в качестве отправных точек.
+
+```{r}
+bbox <- c(left = -74.24285, bottom = 40.50641, right = -73.71795, top = 40.91306)
+
+nyc_map <- get_stamenmap(bbox, zoom = 11)
+
+aggregated_lat_lon <- train %>%
+  group_by(latitude = round(latitude, 2),
+           longitude = round(longitude, 2)) %>%
+  summarize(price = mean(price),
+            n = n()) %>%
+  filter(n >= 5)
+
+ggmap(nyc_map) +
+  geom_point(aes(longitude, latitude, size = n, color = exp(price) - 1),
+             data = aggregated_lat_lon) +
+  scale_color_gradient2(low = "blue", high = "red", mid = "orange",
+                        midpoint = 2, trans = "log10", labels = dollar) +
+  scale_size_continuous(range = c(.5, 4)) +
+  theme_map() +
+  labs(color = "Price",
+       size = "# of listings")
+```
+
+
+## Build model
+
+Применять будем модель `xgboost`
+
+По условию, првоерка будет проводиться по `rmse`, поэтому зададим её в метриках
+
+```{r}
+mset <- metric_set(rmse)
+grid_control <- control_grid(save_pred = TRUE,
+                             save_workflow = TRUE,
+                             extract = extract_model)
+```
+
+Разобьём train выборку, для кросс валидации
+
+```{r}
+set.seed(2021)
+train_fold5 <- train %>%
+  vfold_cv(5)
+```
+
+### TUNE model
+
+#### Простая модель
+
+```{r}
+# создаём рецепт
+xg_rec <- recipe(price ~ minimum_nights + room_type + number_of_reviews,
+                 data = train) %>%
+  step_dummy(all_nominal_predictors())
+
+# задаём движок
+xg_mod <- boost_tree("regression",
+                     trees = tune(),
+                     learn_rate = tune()) %>%
+  set_engine("xgboost")
+
+# Задаём workflow
+xg_wf <- workflow() %>%
+  add_recipe(xg_rec) %>%
+  add_model(xg_mod)
+
+
+xg_tune <- xg_wf %>%
+  tune_grid(resamples = train_fold5,
+            metrics = mset,
+            control = grid_control,
+            grid = crossing(trees = seq(250, 1500, 25),
+                            learn_rate = c(.01)))
+```
+
+#### Результат
+
+Лучшая модель оказалась с числом деревеьев на уровне 600.
+
+rmse = 0.531
+
+
+```{r}
+autoplot(xg_tune)
+
+xg_tune %>% 
+  select_best()
+
+xg_tune %>%
+  collect_metrics() %>%
+  arrange(mean)
+```
+
+### Добавляем lat\long\neighbourhood_group
+
+```{r}
+# создаём рецепт
+xg_rec <- recipe(price ~ minimum_nights + room_type + number_of_reviews +
+                   latitude + longitude + neighbourhood_group,
+                 data = train) %>%
+  step_dummy(all_nominal_predictors())
+
+# задаём движок
+xg_mod <- boost_tree("regression",
+                     trees = tune(),
+                     mtry = tune(),
+                     learn_rate = .01) %>%
+  set_engine("xgboost")
+
+# Задаём workflow
+xg_wf <- workflow() %>%
+  add_recipe(xg_rec) %>%
+  add_model(xg_mod)
+
+# фитим модель
+xg_tune <- xg_wf %>%
+  tune_grid(resamples = train_fold5,
+            metrics = mset,
+            control = grid_control,
+            grid = crossing(mtry = c(2, 4, 6),
+                            trees = seq(250, 1500, 25)))
+```
+
+#### Результат
+
+rsme 0.459
+
+```{r}
+autoplot(xg_tune)
+
+xg_tune %>% 
+  select_best()
+
+xg_tune %>%
+  collect_metrics() %>%
+  arrange(mean)
+```
+
+### Изменим кол-во деревьев
+
+```{r}
+# создаём рецепт
+xg_rec <- recipe(price ~ minimum_nights + room_type + number_of_reviews +
+                   latitude + longitude + neighbourhood_group,
+                 data = train) %>%
+  step_dummy(all_nominal_predictors())
+
+# задаём движок
+xg_mod <- boost_tree("regression",
+                     trees = tune(),
+                     mtry = tune(),
+                     learn_rate = .01) %>%
+  set_engine("xgboost")
+
+# Задаём workflow
+xg_wf <- workflow() %>%
+  add_recipe(xg_rec) %>%
+  add_model(xg_mod)
+
+# фитим модель
+xg_tune <- xg_wf %>%
+  tune_grid(resamples = train_fold5,
+            metrics = mset,
+            control = grid_control,
+            grid = crossing(mtry = c(2, 4, 6),
+                            trees = seq(50, 700, 50)))
+```
+
+#### Результат
+
+rmse == 0.464
+
+```{r}
+autoplot(xg_tune)
+
+xg_tune %>% 
+  select_best()
+
+xg_tune %>%
+  collect_metrics() %>%
+  arrange(mean)
+```
+
+
+
+### Добавим reviews_per_month\calculated_host_listings_count\availability_365\last_review
+
+```{r}
+xg_rec <- recipe(price ~ minimum_nights + room_type + number_of_reviews +
+                   latitude + longitude + neighbourhood_group +
+                   reviews_per_month + calculated_host_listings_count +
+                   availability_365 + last_review,
+                 data = train) %>%
+  step_mutate(is_manhattan = neighbourhood_group == "Manhattan") %>%
+  step_log(all_numeric_predictors(), offset = 1) %>%
+  step_rm(neighbourhood_group) %>%
+  step_mutate(last_review = coalesce(as.integer(Sys.Date() - last_review), 0)) %>%
+  step_dummy(all_nominal_predictors())
+
+xg_mod <- boost_tree("regression",
+                     mtry = tune(),
+                     trees = tune(),
+                     learn_rate = tune()) %>%
+  set_engine("xgboost")
+
+xg_wf <- workflow() %>%
+  add_recipe(xg_rec) %>%
+  add_model(xg_mod)
+
+xg_tune <- xg_wf %>%
+  tune_grid(train_fold5,
+            metrics = mset,
+            control = grid_control,
+            grid = crossing(mtry = c(7),
+                            trees = seq(250, 1500, 25),
+                            learn_rate = c(.008, .01)))
+```
+
+#### Результат
+
+rmse == 0.436
+
+```{r}
+autoplot(xg_tune)
+
+xg_tune %>% 
+  select_best()
+
+xg_tune %>%
+  collect_metrics() %>%
+  arrange(mean)
+```
+
+### Выбираем лучшую модель
+
+```{r}
+xg_fit <- xg_wf %>%
+  finalize_workflow(select_best(xg_tune)) %>%
+  fit(train)
+
+xg_fit %>%
+  augment(test) %>%
+  rmse(price, .pred)
+
+importances <- xgboost::xgb.importance(model = xg_fit$fit$fit$fit)
+
+importances %>%
+  mutate(Feature = fct_reorder(Feature, Gain)) %>%
+  ggplot(aes(Gain, Feature)) +
+  geom_col()
+```
+
+
+
+
