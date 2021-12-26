@@ -1,0 +1,295 @@
+# Libraries
+```{r}
+library(tidyverse)
+library(rvest)
+library(jsonlite)
+library(tidytext)
+library(lubridate)
+library(tokenizers)
+library(wordcloud)
+```
+
+# path to shiny
+
+```{r}
+app_path <- "app/data"
+```
+
+
+# Task
+Сделать текстовый анализ блога QuadCode на хабре
+
+# Get data
+
+## get post's links
+
+```{r}
+links_raw <- read_html("https://habr.com/ru/company/quadcode/blog/")
+
+links <- links_raw %>% 
+  html_elements(".tm-article-snippet__title_h2") %>% 
+  html_element("a") %>% 
+  html_attr("href")
+
+"https://habr.com/ru/company/quadcode/blog/594743/"
+
+stop_words <- read_tsv("https://raw.githubusercontent.com/stopwords-iso/stopwords-ru/master/stopwords-ru.txt") %>% 
+  rename(word = c)
+```
+
+
+## Get more info
+
+```{r}
+output <- tibble()
+for (i in links) {
+  url <- paste0("https://habr.com", i)
+  input <- read_html(url)
+  
+  raw_data <- input %>% 
+    html_elements(".tm-article-presenter__content_narrow") %>% 
+    html_children() %>% 
+    html_text2()
+  
+  
+  info <- input %>% 
+    html_element(".tm-article-sticky-panel__icons") %>% 
+    html_children() %>% 
+    html_text2()
+
+# total
+total <- info[1] %>% 
+  str_extract("(?<=\\в )(.*?)(?=\\:)") %>% 
+  as.integer()
+
+# positive
+positive <- info[1] %>% 
+  str_extract("(?<=\\↑)(.*?)(?=\\ и)") %>% 
+  as.integer()
+
+# negative
+negative <- info[1] %>% 
+  str_extract("(?<=\\↓)(.*?)(?=\\+)") %>% 
+  as.integer()
+
+#sum
+sum <- info[1] %>% 
+  str_extract("(?<=\\+).*") %>% 
+  as.integer()
+
+# views_in_k
+views_in_k <- info[2] %>% 
+  parse_number()
+  #str_extract("(?<=\\ы)(.*?)(?=\\K)") %>% 
+  #parse_number()
+
+# saves
+saves <- info[3] %>% 
+  parse_number()
+  
+  
+  user <- raw_data[1] %>% 
+    str_extract("(.*?)(?=\\ )")
+  
+  title <- raw_data[1] %>% 
+    str_extract("(?<=\\n)(.*?)(?=\\n)")
+  
+  date <- raw_data[1] %>% 
+    str_extract("(?<=\\ )(.*?)(?=\\n)") %>% 
+    str_extract("(.*?)(?=\\ в)") %>% 
+    paste0(" 2021") %>% 
+    lubridate::as_date(format = "%d %B %Y")
+  
+  body <- raw_data[2]
+  
+  temp_df <- tibble(id = which(links == i),
+                    user = user,
+                    title = title,
+                    body = body,
+                    url = url,
+                    date = date,
+                    total = total,
+                    positive = positive,
+                    negative = negative,
+                    sum = sum,
+                    views = views_in_k * 1000,
+                    saves = saves)
+  
+  output <- bind_rows(output, temp_df)
+}
+
+parced_data <- output %>% 
+  replace_na(list(total = 0, 
+                  positive = 0,
+                  negative = 0,
+                  sum = 0)) %>% 
+  mutate(body = str_replace_all(body, "\n", " "),
+         body = str_replace_all(body, "  ", " "),
+         body_length = str_length(body))
+
+output %>% 
+  saveRDS("app/data/parced_data.RDS")
+```
+
+# analyze data
+
+## EDA
+
+Как часто выходят посты
+
+```{r}
+mean_value <- output %>% 
+  arrange(date) %>% 
+  mutate(days_between_post = as.integer(date - lag(date))) %>% 
+  summarise(days_between_post = round(mean(days_between_post, na.rm = TRUE), 1)) %>% 
+  pull()
+
+
+output %>% 
+  arrange(date) %>% 
+  mutate(check = 1,
+         cumsum = cumsum(check)) %>% 
+  mutate(days_between_post = as.integer(date - lag(date))) %>% 
+  ggplot(aes(date, cumsum)) +
+  geom_segment(
+     aes(x=date, xend=date, y=0, yend=cumsum), 
+  ) +
+  geom_label(aes(label = days_between_post))  +
+    labs(
+      x = "дата",
+      y = "порядковый номер поста",
+      title = paste0("Частота публикаций на Хабре"),
+      subtitle = paste0("В среднем проходит ", mean_value, " дней между постами")
+    )
+```
+
+```{r}
+output %>% 
+  arrange(date) %>% 
+  mutate(check = 1,
+         cumsum = cumsum(check)) %>% 
+  select(date, check) %>% 
+  e_charts(date) %>% 
+  e_calendar(range = "2021") %>%  
+  e_heatmap(check, coord_system = "calendar") %>% 
+  e_visual_map(max = 1) |> 
+  e_title("Как часто выходили посты от QuadCode на хабре") %>% 
+  e_tooltip("item") 
+```
+
+
+```{r}
+
+dates <- seq.Date(as.Date("2017-01-01"), as.Date("2018-12-31"), by = "day")
+values <- rnorm(length(dates), 20, 6)
+
+year <- data.frame(date = dates, values = values) %>% as_tibble()
+
+year |> 
+  e_charts(date) |> 
+  e_calendar(range = "2018") |> 
+  e_heatmap(values, coord_system = "calendar") |> 
+  e_visual_map(max = 30, top = "40") |> 
+  e_title("Calendar", "Heatmap")
+
+
+year |> 
+  dplyr::mutate(year = format(date, "%Y")) |> # get year from date
+  group_by(year) |> 
+  e_charts(date) |> 
+  #e_calendar(range = "2017",top="40") |> 
+  e_calendar(range = "2018",top="20") |> 
+  e_heatmap(values, coord_system = "calendar") |> 
+  e_visual_map(max = 30) |> 
+  e_title("Calendar", "Heatmap")|>
+  e_tooltip("item") 
+```
+
+
+
+Как зависят просмотры от кол-ва знаков
+```{r}
+output %>% 
+  mutate(check = 1,
+         teg = "post") %>% 
+  # bind_rows(tibble(check = 1,
+  #                   teg = "today",
+  #                   date = as.Date(Sys.Date()))) %>% 
+  ggplot(aes(body_length, views)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+      labs(
+      x = "Кол-во знаков в посте",
+      y = "Число просмотров",
+      title = paste0("Связь просмотров с кол-вом знаков в посте"),
+      subtitle = "Есть небольшая положительная корреляция, чем больше знаков, тем больше просмотров"
+    )
+```
+
+чем больше просмотров, тем больше сохранений
+```{r}
+output %>% 
+  mutate(ratio = 100*saves/views,
+         pn_rate = negative/positive) %>% 
+  replace_na(list(pn_rate = 0)) %>% 
+  arrange(pn_rate) %>% 
+  ggplot(aes(views, saves)) +
+  geom_point() +
+  labs(
+      y = "Кол-во сохранений",
+      x = "Число просмотров",
+      title = paste0("Связь сохранений постов с числом просмотров"),
+      subtitle = "Есть прямая объяснимая зависимость, чем больше просмотров, тем больше сохранений"
+    )
+```
+
+Какой самый-самый пост
+```{r}
+output %>% 
+  mutate(date = as.character(date)) %>% 
+  mutate(date = fct_reorder(date, views)) %>% 
+  ggplot(aes(views, date)) +
+  geom_col(aes(fill = user)) +
+  geom_text(aes(label = views))
+```
+
+
+## TEXT
+
+Облака слов
+```{r}
+foo <- output %>% 
+  unnest_tokens(word, body)  %>% 
+  anti_join(stop_words, by = "word") %>%
+  mutate(word = tokenize_word_stems(word, language = "russian", simplify = TRUE)) %>% 
+  unnest(word) %>% 
+  count(user, word, sort = TRUE) %>% 
+  filter(user == "darya-dvoeglazova")
+
+  wordcloud(words = foo$word, freq = foo$n, max.words = 15,
+            colors=brewer.pal(8, "Dark2"), random.order=TRUE,
+            scale=c(4,0.5))
+  
+  
+words <- function(n = 5000) {
+  a <- do.call(paste0, replicate(5, sample(LETTERS, n, TRUE), FALSE))
+  paste0(a, sprintf("%04d", sample(9999, n, TRUE)), sample(LETTERS, n, TRUE))
+}
+
+tf <- data.frame(terms = words(100), 
+  freq = rnorm(100, 55, 10)) |> 
+  dplyr::arrange(-freq) %>% as_tibble()
+
+output %>% 
+  unnest_tokens(word, body)  %>% 
+  anti_join(stop_words, by = "word") %>%
+  mutate(word = tokenize_word_stems(word, language = "russian", simplify = TRUE)) %>% 
+  unnest(word) %>% 
+  count(user, word, sort = TRUE) %>% 
+  filter(user == "darya-dvoeglazova") %>% 
+  head(20) %>% 
+  e_color_range(n, color) %>% 
+  e_charts() %>%  
+  e_cloud(word, n, color, shape = "circle", sizeRange = c(5, 150)) %>% 
+  e_title(paste0("Облако слов пользователя ", "darya-dvoeglazova"), "Приведена морфемная форма слова, исключены стоп-слова")
+```
