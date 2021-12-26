@@ -1,0 +1,87 @@
+# Задача
+
+[Описание данных и задачи](https://sibur.ai-community.com/competitions/5/tasks/13)
+
+СИБУР производит и продает различную нефтехимическую продукцию во многие страны мира. Поэтому прогноз спроса необходимо строить с детализацией до продукта, региона, клиента и менеджера, осуществляющего сделку.
+
+Для построения модели даны сделки за тренировочный период (с 2018-01-01 по 2020-07-31) с полями, описывающими сделку. Тестовый набор данных соответствует периоду с 2020-08-01 по 2021-07-31.
+
+## Структура кода и валидации
+В этом соревновании вам предстоит загружать код, который вычисляет предсказания, т. е. суммарный объем для следующего месяца для каждой группы material_code, company_code, country, region, manager_code.
+
+в наборе данных есть 941 группа material_code, company_code, country, region, manager_code, при этом нет групп, которые встречаются только в тестовом периоде,
+полностью сформированный набор предсказаний содержит, таким образом, 941 строку, для каждой из которых вычислены 12 значений суммарного объема для каждого месяца в тестовом периоде,
+код решения должен принимать на вход целевой месяц и сделки, предшествующие ему (с начала тренировочного периода) и возвращать предсказания объемов для целевого месяца; более детальный пример показан в [SC2021] Baseline.ipynb,
+разбиение на публичный и приватный лидерборды осуществляется по группам: часть групп, соответствующая приблизительно 60% суммарного объема по всем группам за все время, используется для публичного лидерборда, а все группы - для приватного.
+
+# Библиотеки
+
+```{r}
+library(tidyverse)
+library(skimr)      # сводка по данным
+library(lubridate)
+library(tidymodels)
+library(modeltime)
+library(timetk)
+```
+
+
+# Чтение данных
+
+сделки для тренировочного периода
+```{r}
+sibur_train_deals <- read_csv("https://sibur.ai-community.com/files/uploads/5f2d1664df1420d5ab14d50e91cf9a85/sc2021_train_deals.csv")
+```
+
+material_code - код продукта,
+company_code - код клиента, который всегда равен 0 для спотовых сделок,
+country - страна, в которую осуществляется продажа,
+region - регион внутри страны, в которую осуществляется продажа; для большинства стран не детализирован,
+manager_code - код менеджера, ведущего сделку,
+month - месяц сделки,
+material_lvl1_name, material_lvl2_name, material_lvl3_name - группировка продукта по категориям разных уровней,
+contract_type - тип сделки,
+date - точная дата сделки,
+volume - объем сделки.
+
+
+# EDA
+
+```{r}
+sibur_train_deals %>% skim()
+```
+
+формируем временные ряды
+
+```{r}
+sibur_train_deals %>% 
+  select(-material_lvl1_name, -material_lvl2_name, -material_lvl3_name, -contract_type, -date) %>% 
+  group_by(material_code, company_code, country, region, manager_code, month) %>% 
+  summarise(volume = sum(volume, na.rm = TRUE)) %>% 
+  ungroup() %>% 
+  pivot_wider(
+    names_from = month,
+    values_from = volume,
+    values_fill = 0
+  ) %>% View
+```
+
+```{r}
+sibur_train_deals %>% 
+  select(-material_lvl1_name, -material_lvl2_name, -material_lvl3_name, -contract_type, -date) %>% 
+  group_by(material_code, company_code, country, region, manager_code, month) %>% 
+  summarise(volume = sum(volume, na.rm = TRUE)) %>% 
+  ungroup() 
+```
+
+```{r}
+sibur_train_deals %>% 
+  group_by(month) %>% 
+  summarise(volume = sum(volume, na.rm = TRUE)) %>% 
+  ggplot(aes(month, volume)) +
+  geom_col()
+```
+
+# Метрика скора
+
+LogRMSE

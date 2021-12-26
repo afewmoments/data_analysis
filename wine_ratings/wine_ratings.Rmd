@@ -18,12 +18,16 @@ theme_set(theme_light())
 
 ```{r}
 wine_ratings <- readr::read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2019/2019-05-28/winemag-data-130k-v2.csv") %>% 
-  select(-X1) %>% 
+  #select(-X1) %>% 
   #  добавляем новую переменную год производства, её вытаскиваем из названия вина
   extract(title, "year", "(20\\d\\d)", convert = T, remove = FALSE) %>% 
   mutate(year = ifelse(year < 1900, NA, year)) %>% 
   filter(!is.na(price))
+
+wine_ratings %>% count(points)
+
 ```
+
 
 
 ```{r}
@@ -204,7 +208,7 @@ wine_ratings_words_cors
 
 ```{r}
 wine_words_filtered <- wine_ratings_words %>% 
-  ?distinct(wine_id, word) %>% 
+  distinct(wine_id, word) %>% 
   add_count(word) %>% 
   filter(n >= 100)
 
@@ -311,7 +315,7 @@ lexicon %>%
   ggplot(aes(word, coefficient, fill = direction)) +
   geom_col() +
   coord_flip() +
-  labs(y = "Ожидаемый влияние слова на предсказание")
+  labs(y = "Ожидаемое влияние слова на предсказание")
 ```
 
 Посмотрим какие слова встречаются в первом описании
