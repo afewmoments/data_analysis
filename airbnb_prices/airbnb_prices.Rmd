@@ -326,7 +326,41 @@ train_fold5 <- train %>%
 
 ### TUNE model
 
+Какие параметры можно тюнить
+
+https://www.hackerearth.com/practice/machine-learning/machine-learning-algorithms/beginners-tutorial-on-xgboost-parameter-tuning-r/tutorial/
+
 #### Простая модель
+
+```{r}
+train_fold5 <- train %>%
+  vfold_cv(5)
+
+xg_rec <- recipe(price ~ .,
+                 data = train) %>%
+  step_dummy(all_nominal_predictors())
+
+xg_mod <- boost_tree("regression",
+                     trees = tune(),
+                     learn_rate = tune()) %>%
+  set_engine("xgboost",
+             lambda = 100)
+
+xg_wf <- workflow() %>%
+  add_recipe(xg_rec) %>%
+  add_model(xg_mod)
+
+xg_tune <- xg_wf %>%
+  tune_grid(resamples = train_fold5,
+            metrics = mset,
+            control = grid_control,
+            grid = crossing(trees = seq(200, 300, 100),
+                            learn_rate = c(.01)))
+
+xg_tune %>%
+  collect_metrics()
+```
+
 
 ```{r}
 # создаём рецепт
