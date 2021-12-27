@@ -1,0 +1,13 @@
+name: quad_code_dash
+title: quad_code_dash
+username:
+account: dashs
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 5371112
+bundleId: 5411930
+url: https://dashs.shinyapps.io/quad_code_dash/
+when: 1640610015.37414
+lastSyncTime: 1640610015.37415
+asMultiple: FALSE
+asStatic: FALSE

@@ -5,11 +5,32 @@ library(tidyverse)
 library(echarts4r)        #  интерактивные графики
 library(bs4Dash)          #  фреймворк для дашбордов
 library(fs)               #  Работа с папками
-library(DT)
+library(DT)               #  Рендеринг таблиц
 library(writexl)          #  Сохранение экселек
 library(lubridate)        #  Даты
-library(tokenizers)
-library(wordcloud)
+library(tokenizers)       # для анализа текстов
+library(tidytext)         # для анализа текстов
+library(writexl)          #  Сохранение экселек
+
+translate_group_type <- function(i) {
+  case_when(
+    i == "total" ~ "суммарного кол-ва голосов", 
+    i == "positive" ~ "лайков", 
+    i == "negative" ~ "дизлайков",
+    i == "sum" ~ "финального кол-во голосов", 
+    i == "views" ~ "просмотров", 
+    i == "saves" ~ "сохранений", 
+    i == "body_length" ~ "кол-во символов в посте")
+}
+
+# choices =   c('Всего голосов' = "total", 
+#               'Лайки' = "positive", 
+#               'Дизлайки' = "negative",
+#               'Финальная оценка' = "sum", 
+#               'Просмотров' = "views", 
+#               'Сохранения' = "saves", 
+#               'Символов в посте' = "body_length"),
+
 
 # read data ----
 
@@ -28,7 +49,7 @@ for (i in all_files) {
 
 header <-  bs4Dash::dashboardHeader(
   title = bs4Dash::dashboardBrand(
-    title = " quadcode на Хабре",
+    title = " quadcode",
     color = "danger",
     href = "https://habr.com/ru/company/quadcode/blog/",
     image = "2.png",
@@ -54,35 +75,10 @@ sidebar <-  bs4Dash::bs4DashSidebar(
   collapsed = TRUE,
   bs4Dash::sidebarMenu(
     id = "sidebar_menu",
-    bs4Dash::menuItem("Сводный анализ",
+    bs4Dash::menuItem("Анализ Хабро-блога",
                       icon = icon("book-reader"),
                       tabName = "generate_orders",
                       selected = TRUE)
-  )
-)
-
-# UI controlbar ----
-
-controlbar <- bs4Dash::bs4DashControlbar(
-  id = "controlbar",
-  skin = "light",
-  pinned = FALSE,
-  collapsed = TRUE,
-  width = 290,
-  overlay = FALSE,
-  controlbarMenu(
-    id = "controlbarMenu",
-    type = "tabs",
-    controlbarItem(
-      "Отбор данных",
-      column(
-        width = 12,
-        align = "left",
-        uiOutput("date_ranger.ui"),
-        uiOutput("select_period.ui"),
-        uiOutput("select_calc.ui")
-      )
-    )
   )
 )
 
@@ -113,22 +109,56 @@ body <-  bs4Dash::bs4DashBody(
           ),
           tabPanel(
             title = "Легенда к данным",
-              p(HTML("&#8226"), " Данные обновляются при запуске приложения"),
-              p(HTML("&#8226"), " По каким проектам ведётся подсчёт ", HTML("&#8212"),  'B2B Движение, B2B техподдержка, B2Bmotion.cloud, Sell-Out, Sell-Out ABB техподдержка, АВС B2BC'),
-              p(HTML("&#8226"), " Оценка в часах ", HTML("&#8212"),  "суммарная оценка по всем задачам из бэклога"),
-              p(HTML("&#8226"), " Уже отработано, часов ", HTML("&#8212"),  "суммарное время по задачам из бэклога, отмеченное в Tempo. В сумму не входят Эпики."),
-              p(HTML("&#8226"), " Осталось, часов ", HTML("&#8212"),  "разница между средним кол-во часов (50 ч.), и отработанным временем в спринте")
+            a("Описание скрипта сбора данных на Github", href = "https://github.com/driapitek/data_analysis/blob/master/quad_code/get_data.R"),
+            br(),
+            br(),
+            p(HTML("&#8226"), " id ", HTML("&#8212"), "идентификатор поста"),
+            p(HTML("&#8226"), " user ", HTML("&#8212"), "никнейм сотрудника quadcode на Хабре"),
+            p(HTML("&#8226"), " title ", HTML("&#8212"), "Заголовок поста"),
+            p(HTML("&#8226"), " body ", HTML("&#8212"), "Тело поста"),
+            p(HTML("&#8226"), " url ", HTML("&#8212"), "Ссылка на пост"),
+            p(HTML("&#8226"), " date ", HTML("&#8212"), "Дата публикации"),
+            p(HTML("&#8226"), " total ", HTML("&#8212"), "Общее число голосов всех пользователей Хабра"),
+            p(HTML("&#8226"), " positive ", HTML("&#8212"), "Количество позитивных оценок"),
+            p(HTML("&#8226"), " negative ", HTML("&#8212"), "Количество негативных оценок"),
+            p(HTML("&#8226"), " sum ", HTML("&#8212"), "Финальная оценка. Равна сумме позитивных и негативных оценок"),
+            p(HTML("&#8226"), " views ", HTML("&#8212"), "Количество просмотров публикации. Считается самим Хабром"),
+            p(HTML("&#8226"), " saves ", HTML("&#8212"), "Количество добавлений в избранное"),
+            p(HTML("&#8226"), " body_length ", HTML("&#8212"), "Количество символов в посте")
           ),
           tabPanel(
-            title = "Скачать датасет"
+            title = "Скачать датасет",
+            downloadButton("download_button", 
+                           "Скачать полную таблицу в Excell"),
           )
         )
       ),
       fluidRow(
-        echarts4rOutput("calendar")
+        box(
+          width = 12,
+          title = "График выхода постов",
+          uiOutput("select_group_type.ui"),
+          echarts4rOutput("calendar")
+        ),
       ),
       fluidRow(
-        echarts4rOutput("wordcloud")
+        box(
+          width = 12,
+          title = "Корреляции данных",
+          uiOutput("select_group_type2.ui"),
+          uiOutput("select_group_type3.ui"),
+          plotOutput("correlation")
+        )
+      ),
+      fluidRow(
+        box(
+          width = 12,
+          title = "Облако тегов",
+          uiOutput("select_user.ui"),
+          uiOutput("select_post.ui"),
+          uiOutput("word_n_range.ui"),
+          echarts4rOutput("wordcloud")
+        )
       )
     )
   )
@@ -137,33 +167,205 @@ body <-  bs4Dash::bs4DashBody(
 
 # UI ALL ----
 
-ui <- bs4Dash::bs4DashPage(header, sidebar, body, controlbar, dark = FALSE)
+ui <- bs4Dash::bs4DashPage(header, sidebar, body, dark = FALSE)
 
 server <- function(input, output, session) {
 
   # INPUTS ----
+  # select user ----
+  output$select_user.ui <- renderUI({
+    selectInput(
+      inputId = "select_user.server",
+        label = "Пользователь:",
+        width = 280,
+        choices = parced_data %>% 
+                     distinct(user) %>% 
+                     arrange(user) %>%  
+                     pull(user),
+        selected = "darya-dvoeglazova"
+        )
+  })
+
+  # select group2 type ----
+  output$select_group_type2.ui <- renderUI({
+    selectInput(
+      inputId = "select_group_type2.server",
+      label = "Первый параметр для сравнения:",
+      width = 280,
+      choices =   c('Всего голосов' = "total", 
+                    'Лайки' = "positive", 
+                    'Дизлайки' = "negative",
+                    'Финальная оценка' = "sum", 
+                    'Просмотров' = "views", 
+                    'Сохранения' = "saves", 
+                    'Символов в посте' = "body_length"),
+      selected = "views"
+    )
+  })
+  
+  # select group3 type ----
+  output$select_group_type3.ui <- renderUI({
+    foo <- c('Всего голосов' = "total", 
+             'Лайки' = "positive", 
+             'Дизлайки' = "negative",
+             'Финальная оценка' = "sum", 
+             'Просмотров' = "views", 
+             'Сохранения' = "saves", 
+             'Символов в посте' = "body_length")
+    bar <- which(foo == input$select_group_type2.server)
+    
+    selectInput(
+      inputId = "select_group_type3.server",
+      label = "Второй параметр для сравнения:",
+      width = 280,
+      choices =   foo[-bar],
+      selected = "positive"
+    )
+  })
+    
+  # select group type ----
+  output$select_group_type.ui <- renderUI({
+    selectInput(
+      inputId = "select_group_type.server",
+      label = "Тип группировки:",
+      width = 280,
+      choices =   c('Всего голосов' = "total", 
+                    'Лайки' = "positive", 
+                    'Дизлайки' = "negative",
+                    'Финальная оценка' = "sum", 
+                    'Просмотров' = "views", 
+                    'Сохранения' = "saves", 
+                    'Символов в посте' = "body_length"),
+      selected = "views"
+    )
+  })
+  
+  # range to wordcloud
+  output$word_n_range.ui <- renderUI({
+    sliderInput(
+      inputId = "word_n_range.server",
+      label = "Кол-во слов:",
+      width = 280,
+      min = 1,
+      max = 25,
+      value = 10
+    )
+  })
+  
+  # select post ----
+  output$select_post.ui <- renderUI({
+    shinyWidgets::pickerInput(
+      inputId = "select_post.server",
+      label = "Пост пользователя:",
+      width = 280,
+      options = list(
+        `actions-box` = TRUE,
+        `select-all-text` = "Все",
+        `deselect-all-text` = "Ни одного",
+        `live-search` = TRUE,
+        `none-selected-text` = "Ничего не выбрано"),
+      multiple = TRUE,
+      choices = parced_data %>% 
+        filter(user %in% input$select_user.server) %>% 
+        pull(title),
+      selected = parced_data %>% 
+        filter(user %in% input$select_user.server) %>% 
+        head(1) %>% 
+        pull(title) 
+      )
+  })
+  
+
   
   # OUTPUTS ----
+  # download button ----
+  output$download_button <- downloadHandler(
+    filename = "quad_code_habr_blog_parced.xlsx",
+    content = function(con){
+      write_xlsx(parced_data, con)
+    })
+  
   # calendar ----
   output$calendar <- renderEcharts4r({
-    parced_data %>% 
+    max_value <- parced_data %>% 
+      select(input$select_group_type.server) %>% 
+      pull() %>% 
+      max()
+    
+    mean_value <- parced_data %>% 
+      select(input$select_group_type.server) %>% 
+      pull() %>% 
+      mean() %>% 
+      round(., 1)
+    
+    user_max <- parced_data %>% 
+      filter(across(all_of(input$select_group_type.server)) == max_value) %>% 
+      pull(user)
+    
+    title_max <- parced_data %>% 
+      filter(across(all_of(input$select_group_type.server)) == max_value) %>% 
+      pull(title)
+    
+    date_max <- parced_data %>% 
+      filter(across(all_of(input$select_group_type.server)) == max_value) %>% 
+      pull(date)
+    
+    plot <- parced_data %>% 
       arrange(date) %>% 
       # mutate(check = 1,
       #        cumsum = cumsum(check)) %>% 
       #select(date, check) %>% 
       e_charts(date) %>% 
-      e_calendar(range = "2021") %>%  
-      e_heatmap(views, coord_system = "calendar") %>% 
-      e_visual_map(max = 15000, top = "200") |> 
-      e_title("Как часто выходили посты от QuadCode на Хабре") %>% 
+      e_calendar(range = "2021",  top = "80") %>%  
+      e_heatmap_(input$select_group_type.server, coord_system = "calendar") %>% 
+      e_visual_map(max = max_value, top = "240") |> 
+      e_title(paste0("В среднем по ", mean_value, " ", translate_group_type(input$select_group_type.server), " на пост"), 
+              paste0("Максимум ", translate_group_type(input$select_group_type.server), " у поста: «", title_max,"» пользователя ", 
+                     user_max, " (", max_value, ") от ", date_max)) %>% 
       e_tooltip("item") 
+    
+    if (input$dark_mode) plot <- plot %>% e_theme("dark-bold")
+    plot
+    
+  })
+  
+  # correlation ----
+  output$correlation <- renderPlot({
+    to_plot <- parced_data %>%
+      rename("x" = input$select_group_type2.server,
+             "y" = input$select_group_type3.server)
+    
+    coeff_cor <- cor(to_plot$x, to_plot$y) %>% round(3)
+    
+    conclution <- if(coeff_cor == 1){
+      "данные скореллированы"
+    } else if (coeff_cor > 0.8){
+      "высокой связанности параметров"
+    } else if (coeff_cor > 0.5){
+      "невысокой связанности параметров"
+    } else if (coeff_cor > 0.2) {
+      "незначительной связанности параметров"
+    }else if (coeff_cor < 0.2) {
+      "том, что изменение одного параметра, практически не влияет на другой параметр"
+    }
+    
+    to_plot %>%
+      ggplot(aes(x, y)) +
+      geom_point() +
+      geom_smooth(method = "lm") +
+      labs(
+        x = translate_group_type(input$select_group_type2.server),
+        y = translate_group_type(input$select_group_type3.server),
+        title = paste0("Коэффициент корреляции = ", coeff_cor),
+        subtitle = paste0("Что может говорить о ", conclution)
+      )
   })
   
   # parced table ----
   output$parced_table <- renderDataTable(
     callback = JS('table.page(3).draw(false);'),
     options = list(pageLength = 15,
-                   columnDefs = list(list(targets = c(3,4,5),
+                   columnDefs = list(list(targets = c(3, 4, 5),
                                           render = JS(
                                             "function(data, type, row, meta) {",
                                             "return type === 'display' && data.length > 6 ?",
@@ -174,18 +376,22 @@ server <- function(input, output, session) {
   
   # wordcloud ----
   output$wordcloud <- renderEcharts4r({
-    parced_data %>% 
+    plot <- parced_data %>% 
       unnest_tokens(word, body)  %>% 
       anti_join(stop_words, by = "word") %>%
       mutate(word = tokenize_word_stems(word, language = "russian", simplify = TRUE)) %>% 
       unnest(word) %>% 
       count(title, user, word, sort = TRUE) %>% 
-      filter(user == "darya-dvoeglazova") %>% 
-      head(20) %>% 
+      filter(user %in% input$select_user.server,
+             title %in% input$select_post.server) %>% 
+      head(input$word_n_range.server) %>% 
       e_color_range(n, color) %>% 
       e_charts() %>%  
-      e_cloud(word, n, color, shape = "circle", sizeRange = c(5, 150)) %>% 
-      e_title(paste0("20","Самых часто употребляемых слов в посте ", "darya-dvoeglazova"), "Приведена морфемная форма слова, исключены стоп-слова")
+      e_cloud(word, n, color, shape = "circle") %>% 
+      e_title(paste0(input$word_n_range.server," cамых часто употребляемых слов в посте ", input$select_user.server), "Приведена морфемная форма слова, исключены стоп-слова")
+    
+    if (input$dark_mode) plot <- plot %>% e_theme("dark-bold")
+    plot
   })
 
   
