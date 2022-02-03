@@ -1,0 +1,210 @@
+# Libraries
+
+```{r}
+library(recommenderlab)
+library(tidyverse)
+```
+
+# Презентация
+
+# Get data
+
+```{r}
+data(MSWeb)
+MSWeb
+```
+
+В общем случае нужно получить из таблицы с транзакциями рейтинговую таблицу. 
+У нас таблица уже готова, в примере ниже я разберу как это делать в случае если у вас таблица с транзакциями:
+```{r}
+# Имитируем таблицу с тразакциями
+MSWeb_df <- recommenderlab::getData.frame(MSWeb) %>% 
+  as_tibble()
+
+# Проверка колонки с рейтингом
+MSWeb_df %>% 
+  distinct(rating)
+
+# Создаём df похожий на матрицу
+MSWeb_df_mt <- reshape2::dcast(MSWeb_df, 
+                               user ~ item,
+                               value.var = "rating",
+                               fill = 0)
+class(MSWeb_df_mt)
+
+# Матрица 5 на 5 из первых элементов для демонстрации
+MSWeb_df_mt[1:5,1:5]
+
+MSWeb_mt <- as.matrix(MSWeb_df_mt[,-1])
+class(MSWeb_mt)
+
+colnames(MSWeb_mt) <- colnames(MSWeb_df_mt[,-1])
+rownames(MSWeb_mt) <- MSWeb_df_mt$user
+
+MSWeb_mt.itemMatrix <- as(MSWeb_mt, "itemMatrix")
+MSWeb <- new("binaryRatingMatrix", data = MSWeb_mt.itemMatrix)
+```
+
+# Exploratory data analysis
+В этом блоке изучаем данные, с которыми будем работать
+```{r}
+# Гистограмма распределения кол-ва посещённых страниц
+MSWeb_df %>% 
+  count(user) %>% 
+  ggplot(aes(n)) +
+  geom_histogram()
+
+# Тоже самое в числах
+MSWeb_df %>% 
+  count(user) %>% 
+  count(n)
+```
+
+# Поиск лучшего алгоритма рекомендации
+
+Для бинарной матрицы в библиотеке `recommenderlab` доступны следующие алгоритмы:
+```{r}
+recommenderRegistry$get_entries(dataType = "binaryRatingMatrix")
+```
+
+## Какими метриками будем определять лучший алгоритм
+
+Мы будем использовать Precision-Recall, так как у нас очень большой дисбаланс классов --- в силу большой разряженности матрицы, т.е. 1 много меньше чем 0 в матрице.
+
+Выберем такой алгоритм, при котором Recall будет максимальным, при том же или более высоком уровне Precision
+
+
+## Выбор моделей
+
+```{r}
+# Методы, доступные для binaryRatingMatrix
+recommenderRegistry$get_entries(dataType = "binaryRatingMatrix")
+
+# Создаём схему обучения
+set.seed(2022)
+eval_scheme <- evaluationScheme(MSWeb, 
+                                method = "cross-validation", 
+                                k = 3, 
+                                train  = 0.9,
+                                given = 1)
+
+# проверка размеров фолдов:
+sapply(eval_scheme@runsTrain, length)
+
+# Указываем алгоритмы, которые будем тестировать
+algorithms <- list(
+  "RANDOM"   = list(name = "RANDOM", param = NULL),
+  "POPULAR"  = list(name = "POPULAR", param = NULL),
+  "UBCF_20"  = list(name = "UBCF", param = list(nn = 20, weighted = FALSE)),
+  "UBCF_100" = list(name = "UBCF", param = list(nn = 100, weighted = FALSE)),
+  "IBCF_20"  = list(name  = "IBCF", param = list(k = 20)),
+  "IBCF_100" = list(name  = "IBCF", param = list(k = 100)))
+```
+
+
+
+"jaccard":
+"the number of items which occur in both elements divided by the total number of items in the elements (Sneath, 1957). This measure is often also called: binary, asymmetric binary, etc."
+
+In order to extract the sets, we need to use getData. There are three sets:
+• train: This is the training set
+• known: This is the test set, with the item used to build the recommendations
+• unknown: This is the test set, with the item used to test the recommendations
+
+Отбирать будем по параметру topNList, от 1 до 15:
+```{r}
+# Запускаем обучение моделей
+results <- recommenderlab::evaluate(x      = eval_scheme, 
+                                    method = algorithms, 
+                                    type   = "topNList", 
+                                    n      = seq(1, 15, 1))
+```
+
+Функция для извлечениея результатов
+```{r}
+avg_conf_matr <- function(res) {
+  tmp <- res %>%
+    getConfusionMatrix()  %>%  
+    as.list() 
+    as.data.frame(Reduce("+",tmp) / length(tmp)) %>% 
+    mutate(n = seq(1, 15, 1)) %>%
+    select('n', 'precision', 'recall', 'TPR', 'FPR') 
+}
+
+results_tbl <- results %>%
+  map(avg_conf_matr) %>% 
+  enframe() %>%
+  unnest(value)
+```
+
+## Построение графиков ROC и recall-precision
+
+```{r}
+results_tbl <- results %>%
+  map(avg_conf_matr) %>% 
+  enframe() %>%
+  unnest(value)
+
+results_tbl %>%
+  ggplot(aes(recall, precision, 
+             color = fct_reorder2(as.factor(name), precision, recall))) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Precision-Recall кривые", 
+       subtitle = "от 1 до 15 товаров",
+       color = "Model") +
+  theme(legend.position = "bottom")
+
+
+results_tbl %>% 
+  ggplot(aes(FPR, TPR, color = fct_reorder2(as.factor(name), FPR, TPR))) +
+  geom_line() +
+  geom_point() +
+  labs(title = "ROC кривые", 
+       subtitle = "от 1 до 15 товаров",
+       color = "Model") +
+  theme(legend.position = "bottom")
+```
+
+
+# Тестирование
+
+```{r}
+# Обучаем модель
+recc_model <- Recommender(data = getData(eval_scheme, "train"), 
+                          method = "IBCF",
+                          parameter = list(k = 100))
+
+# Делаем предсказания на тесте
+eval_prediction <- predict(object = recc_model,
+                           newdata = getData(eval_scheme, "known"),
+                           n = 4, 
+                           type = "topNList")
+
+# Оцениваем качество 
+eval_accuracy <- calcPredictionAccuracy(x = eval_prediction,
+                                        data = getData(eval_scheme, "unknown"), 
+                                        byUser = FALSE,
+                                        given = 4)
+eval_accuracy["precision"]
+#0.1615677
+
+eval_accuracy["recall"]
+#0.4219832
+```
+
+# Запись модели для приложения
+
+```{r}
+model.app <- Recommender(data = MSWeb, 
+                          method = "IBCF",
+                          parameter = list(k = 100))
+
+model.app %>% 
+  saveRDS("recommender_app/data/model.RDS")
+
+colnames(MSWeb)
+```
+
+Для хостинга приложения используется shinyapps.io
+
