@@ -6,13 +6,12 @@ output:
   html_document:
     toc: true
     toc_float: true
-    number_sections: true
 ---
 
 
 # Библиотеки
 
-```{r}
+```{r, message=FALSE}
 library(tidyverse)
 ```
 
@@ -27,7 +26,8 @@ connection <- DBI::dbConnect(
   password = "ds322loowe88zxcgJUs",
   port     = 3306)
 
-#DBI::dbDisconnect(connection)
+# отключиться после получения всех данных
+# DBI::dbDisconnect(connection)
 ```
 
 
@@ -254,8 +254,7 @@ names(action) <- snakecase::to_snake_case(names(action))
 
 Под вовлеченностью будем считать время, которое прошло между firstOpen и любым другим действием.
 
-Логика в этом следующая:
-  * чем быстрее пользователь после firstOpen начнёт выполнять действия завязанные на function%, тем быстрее он будет знакомиться с продуктом, тем с большей вероятностью в дальнейшем будет совершать целевые действия
+Логика в этом следующая: чем быстрее пользователь после firstOpen начнёт выполнять действия завязанные на function%, тем быстрее он будет знакомиться с продуктом, тем с большей вероятностью в дальнейшем будет совершать целевые действия
 
 Я заведомо буду считать время до первого действия с любым function%. Я исхожу из предположения, что изменение мест function1 и function2 между собой, может сделать для пользователя выполнение function3 или function4 более желанным или удобным.
 
@@ -282,7 +281,7 @@ action_with_metric <- action %>%
 
 ### Направленность теста
 
-Логично предположить, что вовлечённость может как увеличиться, так и уменьшиться в результате внесённых изменений. Поэтому я буду проверять двустороннее распределение.
+Я предполагаю, что вовлечённость может как увеличиться, так и уменьшиться в результате внесённых изменений. Поэтому проверяться будет двустороннее распределение.
   
   
 ## EDA
@@ -348,7 +347,7 @@ action %>%
 
 ### Распределение времени до первого действия по группам
 
-```{r}
+```{r, message=FALSE}
 action_with_metric %>% 
   ggplot(aes(group, time_to_action)) +
   geom_boxplot() +
@@ -362,7 +361,7 @@ action_with_metric %>%
 
 По boxplot можно сказать, что распределения похожи по характеру между собой. Имеют левую ассиметрию, с некоторым количеством выбросов справа. Посмотрим на гистограммы:
 
-```{r}
+```{r, message=FALSE}
 action_with_metric %>% 
   ggplot(aes(time_to_action)) +
   geom_histogram(bins = 50) +
@@ -420,7 +419,7 @@ action_with_metric %>%
 
 Проверяется нулевая гипотеза о том, что выборка (Old и New по отдельности) подчиняется нормальному распределению.
 
-```{r}
+```{r, warning=FALSE}
 
 new_ks_test <- action_with_metric %>% 
   mutate(time_to_action = as.numeric(time_to_action),
@@ -468,7 +467,7 @@ action_with_metric <- action_with_metric %>%
 ```
 
 Формирование дата фрейма для проверок
-```{r}
+```{r, message=FALSE}
 action_for_tests <- action_with_metric %>% 
   select(group, time_to_action) %>% 
   mutate(time_to_action = as.numeric(time_to_action)) %>% 
