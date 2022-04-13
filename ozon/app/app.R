@@ -123,7 +123,7 @@ body <-  bs4Dash::bs4DashBody(
           tabPanel(
             title = "Скачать датасет",
             downloadButton("download_button", 
-                           "Скачать полную таблицу в Excell"),
+                           "Скачать полную таблицу в .csv"),
           )
         )
       ),
@@ -302,9 +302,9 @@ server <- function(input, output, session) {
   # OUTPUTS ----
   # download button ----
   output$download_button <- downloadHandler(
-    filename = "ozon_habr_blog_parced.xlsx",
-    content = function(con){
-      write_xlsx(parced_data, con)
+    filename = "ozon_habr_blog_parsed.csv",
+    content = function(file){
+      write_csv(parced_data, file)
     })
 
   # by_month ----

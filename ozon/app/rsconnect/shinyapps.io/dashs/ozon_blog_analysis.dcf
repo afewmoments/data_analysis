@@ -1,0 +1,13 @@
+name: ozon_blog_analysis
+title: ozon_blog_analysis
+username:
+account: dashs
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 6075804
+bundleId: 5791562
+url: https://dashs.shinyapps.io/ozon_blog_analysis/
+when: 1649791804.95447
+lastSyncTime: 1649791804.95448
+asMultiple: FALSE
+asStatic: FALSE
